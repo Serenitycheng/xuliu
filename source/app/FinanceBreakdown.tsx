@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { formatCny, type FinanceEntry } from "@/lib/finance";
 import { categoryGlyphs, expenseDetailCategory } from "@/lib/finance-categories";
 
@@ -37,6 +37,9 @@ export function FinanceCategorySection({ type, totals, entries, renderEntry }: {
   renderEntry: (entry: FinanceEntry, showDate?: boolean) => ReactNode;
 }) {
   const label = type === "income" ? "收入" : "支出";
+  const [sectionOpen, setSectionOpen] = useState(type === "expense");
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(() => new Set());
+  const allExpanded = sectionOpen && totals.length > 0 && totals.every((item) => expandedCategories.has(item.category));
   const total = totals.reduce((sum, item) => sum + item.amountCents, 0);
   const groups = new Map<string, FinanceEntry[]>();
   entries.filter((entry) => entry.type === type).sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time)).forEach((entry) => {
@@ -44,8 +47,12 @@ export function FinanceCategorySection({ type, totals, entries, renderEntry }: {
     group.push(entry);
     groups.set(entry.category, group);
   });
-  return <details className="panel financeCategoryPanel">
-    <summary className="financeSectionTitle"><div><h2>{label}分类</h2><span>{totals.length} 类 · {entries.filter((entry) => entry.type === type).length} 笔</span></div><b className={type === "income" ? "incomeText" : "expenseText"}>{formatCny(total)}</b><i aria-hidden="true">⌄</i></summary>
+  return <details className="panel financeCategoryPanel" open={sectionOpen} onToggle={(event) => setSectionOpen(event.currentTarget.open)}>
+    <summary className="financeSectionTitle"><div><h2>{label}分类</h2><div className="financeCategoryCaption"><span>{totals.length} 类 · {entries.filter((entry) => entry.type === type).length} 笔</span>{totals.length > 0 && <button type="button" className="financeCategoryExpandAll" aria-label={`${allExpanded ? "收起" : "展开"}全部${label}分类明细`} aria-expanded={allExpanded} onClick={(event) => {
+      event.preventDefault(); event.stopPropagation();
+      setSectionOpen(true);
+      setExpandedCategories(allExpanded ? new Set() : new Set(totals.map((item) => item.category)));
+    }}>{allExpanded ? "全部收起" : "全部展开"}</button>}</div></div><b className={type === "income" ? "incomeText" : "expenseText"}>{formatCny(total)}</b><i aria-hidden="true">⌄</i></summary>
     {totals.length ? <div className="financeCategoryList">{totals.map((item) => {
       const categoryEntries = groups.get(item.category) ?? [];
       const details = new Map<string, FinanceEntry[]>();
@@ -55,7 +62,15 @@ export function FinanceCategorySection({ type, totals, entries, renderEntry }: {
         group.push(entry);
         details.set(detail, group);
       });
-      return <details className="financeCategoryItem" key={item.category}>
+      return <details className="financeCategoryItem" key={item.category} open={expandedCategories.has(item.category)} onToggle={(event) => {
+        const open = event.currentTarget.open;
+        setExpandedCategories((current) => {
+          if (current.has(item.category) === open) return current;
+          const next = new Set(current);
+          if (open) next.add(item.category); else next.delete(item.category);
+          return next;
+        });
+      }}>
         <summary><span className="financeCategoryGlyph">{categoryGlyphs[item.category] || (type === "income" ? "收" : "记")}</span><span className="financeCategoryName"><strong>{item.category}</strong><small>{categoryEntries.length} 笔 · {(item.amountCents / total * 100).toFixed(1)}%</small></span><b>{formatCny(item.amountCents)}</b><i aria-hidden="true">⌄</i></summary>
         <div className="financeCategoryTransactions">{[...details].sort((a, b) => b[1].reduce((sum, entry) => sum + entry.amountCents, 0) - a[1].reduce((sum, entry) => sum + entry.amountCents, 0)).map(([detail, detailEntries]) => <div className="financeDetailGroup" key={detail}>
           {type === "expense" && <div className="financeDetailGroupHead"><strong>{detail}</strong><span>{detailEntries.length} 笔</span><b>{formatCny(detailEntries.reduce((sum, entry) => sum + entry.amountCents, 0))}</b></div>}

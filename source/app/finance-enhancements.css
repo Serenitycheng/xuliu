@@ -8,6 +8,15 @@
 .financeSectionTitle > i { color: var(--muted); font-style: normal; transition: transform .2s; }
 details[open] > .financeSectionTitle > i { transform: rotate(180deg); }
 .financeCategoryPanel[open] > summary { padding-bottom: 10px; }
+.financeCategoryCaption { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
+.financeCategoryExpandAll { margin-top: 4px; padding: 0; border: 0; color: var(--appearance-link, var(--accent)); background: transparent; font-size: 11px; white-space: nowrap; }
+.financeBudgetSummary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+.financeBudgetSummary::-webkit-details-marker { display: none; }
+.financeBudgetSummary h2 { margin: 0; font-size: 17px; }
+.financeBudgetSummary > div { display: flex; align-items: center; gap: 12px; }
+.financeBudgetSummary i { color: var(--muted); font-style: normal; transition: transform .15s; }
+.financeBudgetDetails[open] > summary { margin-bottom: 18px; }
+.financeBudgetDetails[open] > summary i { transform: rotate(180deg); }
 .financeDistributionGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .financeOverviewActions { grid-column: 1 / -1; margin-top: -10px; padding-top: 12px; border-top: 1px solid var(--line); }
 .financeStatsToggle { display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; color: var(--muted); background: transparent; font-size: 11px; }

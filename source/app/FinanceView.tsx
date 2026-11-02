@@ -348,8 +348,8 @@ export default function FinanceView({ finance, readOnly, projectOptions, onChang
       <FinanceDistribution label="收入分类饼图" totals={incomeTotals} />
     </div>
 
-    <section className="panel budgetPanel">
-      <div className="sectionHead"><div><h2>月度预算</h2></div><span className="countChip">{budgetRate}%</span></div>
+    <details className="panel budgetPanel financeBudgetDetails">
+      <summary className="financeBudgetSummary"><h2>月度预算</h2><div><span className="countChip">{budgetRate}%</span><i aria-hidden="true">⌄</i></div></summary>
       <div className="totalBudgetRow">
         <label><span>本月总预算</span><div><b>¥</b><input key={`total-${selectedMonth}-${currentBudget.totalCents}`} disabled={readOnly} inputMode="decimal" defaultValue={currentBudget.totalCents ? centsToYuanInput(currentBudget.totalCents) : ""} placeholder="例如 3000" onBlur={(event) => commitBudget(event.currentTarget, currentBudget.totalCents, {})} /></div></label>
         <div className="budgetTrack"><i><b style={{ width: `${Math.min(100, budgetRate)}%` }} /></i><span>{currentBudget.totalCents ? `${formatCny(summary.expenseCents)} / ${formatCny(currentBudget.totalCents)}` : "设置预算后显示进度"}</span></div>
@@ -361,7 +361,7 @@ export default function FinanceView({ finance, readOnly, projectOptions, onChang
         const rate = budget ? Math.round(spent / budget * 100) : 0;
         return <label key={category}><span>{category}<small>{spent ? `已用 ${formatCny(spent)}` : "暂无支出"}</small></span><div><b>¥</b><input key={`${selectedMonth}-${category}-${budget}`} disabled={readOnly} inputMode="decimal" defaultValue={budget ? centsToYuanInput(budget) : ""} placeholder="分类预算" onBlur={(event) => commitBudget(event.currentTarget, budget, { category })} /></div>{budget > 0 && <i><b style={{ width: `${Math.min(100, rate)}%` }} /></i>}</label>;
       })}</div>
-    </section>
+    </details>
 
     </div>
 
