@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import {
   budgetInputToCents,
   centsToYuanInput,
@@ -81,6 +81,8 @@ function calendarAmount(cents: number) {
 export default function FinanceView({ finance, readOnly, projectOptions, onChange, getWorkspaceBytes }: FinanceViewProps) {
   const wechatFileInput = useRef<HTMLInputElement>(null);
   const storedValuePanel = useRef<HTMLDetailsElement>(null);
+  const statisticsId = useId();
+  const [statisticsOpen, setStatisticsOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(monthKey());
   const [selectedDay, setSelectedDay] = useState<string | null>(localDateKey());
   const [typeFilter, setTypeFilter] = useState<"all" | FinanceEntryType>("all");
@@ -337,12 +339,10 @@ export default function FinanceView({ finance, readOnly, projectOptions, onChang
     <section className="panel financeOverview" aria-label={`${monthLabel(selectedMonth)}收支概览`}>
       <div className="financeOverviewPrimary"><span>{monthLabel(selectedMonth)} · 总支出</span><strong className="expenseText">{formatCny(summary.expenseCents)}</strong><small>{monthEntries.filter((entry) => entry.type === "expense").length} 笔支出</small></div>
       <div className="financeOverviewSecondary"><div><span>总收入</span><b className="incomeText">{formatCny(summary.incomeCents)}</b></div><div><span>结余</span><b>{formatSignedCny(summary.netCents)}</b></div></div>
+      <div className="financeOverviewActions"><button type="button" className="financeStatsToggle" aria-expanded={statisticsOpen} aria-controls={statisticsId} onClick={() => setStatisticsOpen((value) => !value)}>{statisticsOpen ? "收起统计详情" : "查看统计详情"}<span aria-hidden="true">⌄</span></button></div>
     </section>
 
-    <StoredValuePanel accounts={accounts} entries={finance.entries} month={selectedMonth} readOnly={readOnly} panelRef={storedValuePanel} onCreate={newAccount} onEdit={setAccountEditor} onRecord={(type, accountId) => openCreate(type, localDateKey(), accountId)} renderEntry={renderEntry} />
-
-    <details className="financeDetails">
-      <summary><span>查看统计详情</span><small>{monthLabel(selectedMonth)} · 收支饼图与预算</small><b aria-hidden="true">⌄</b></summary>
+    <div className="financeDetails" id={statisticsId} role="region" aria-label="统计详情" hidden={!statisticsOpen}>
     <div className="financeInsightGrid financeDistributionGrid">
       <FinanceDistribution label="支出分类饼图" totals={categoryTotals} />
       <FinanceDistribution label="收入分类饼图" totals={incomeTotals} />
@@ -363,10 +363,12 @@ export default function FinanceView({ finance, readOnly, projectOptions, onChang
       })}</div>
     </section>
 
-    </details>
+    </div>
 
     <FinanceCategorySection type="expense" totals={categoryTotals} entries={monthEntries} renderEntry={renderEntry} />
     <FinanceCategorySection type="income" totals={incomeTotals} entries={monthEntries} renderEntry={renderEntry} />
+
+    <StoredValuePanel accounts={accounts} entries={finance.entries} month={selectedMonth} readOnly={readOnly} panelRef={storedValuePanel} onCreate={newAccount} onEdit={setAccountEditor} onRecord={(type, accountId) => openCreate(type, localDateKey(), accountId)} renderEntry={renderEntry} />
 
     <section className="panel ledgerPanel">
       <div className="ledgerToolbar">
