@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from "react";
 import { BackgroundPicker, useBackgroundAppearance } from "./BackgroundAppearance";
 import { appearancePresetKey, appearancePresetMatches, appearancePresetsStorageKey, normalizeAppearancePresets, renameAppearancePreset, saveAppearancePreset, type AppearancePreset } from "@/lib/appearance-presets";
 import { normalizeColorCode, normalizeSavedColors, themeColorNamesKey } from "@/lib/saved-colors";
@@ -19,23 +19,35 @@ const backgroundPreview = (value: AppearancePreset["background"]) => value.mode 
 
 export function AppearanceMenu(props: ComponentProps<typeof ThemePicker>) {
   const [expanded, setExpanded] = useState(false);
-  const host = useRef<HTMLDivElement>(null);
+  const [panelStyle, setPanelStyle] = useState<{ top: number; right: number; width: number; maxHeight: number }>();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!expanded) return;
+    const position = () => {
+      const anchor = trigger.current?.getBoundingClientRect();
+      if (!anchor) return;
+      const viewportWidth = document.documentElement.clientWidth;
+      const bottomSpace = window.innerWidth <= 760 ? 83 : 16;
+      const top = Math.max(16, Math.min(anchor.bottom + 10, window.innerHeight - bottomSpace - 160));
+      setPanelStyle({ top, right: Math.max(16, viewportWidth - anchor.right), width: Math.min(340, viewportWidth - 32), maxHeight: Math.max(120, Math.min(620, window.innerHeight - bottomSpace - top)) });
+    };
+    position();
+    window.addEventListener("resize", position);
+    return () => window.removeEventListener("resize", position);
+  }, [expanded]);
   useEffect(() => {
     if (!expanded) return;
-    panel.current?.querySelector<HTMLButtonElement>("button")?.focus();
-    const outside = (event: PointerEvent) => { if (host.current && !event.composedPath().includes(host.current)) setExpanded(false); };
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { setExpanded(false); trigger.current?.focus(); } };
-    document.addEventListener("pointerdown", outside);
+    panel.current?.querySelector<HTMLButtonElement>(".appearanceControl")?.focus();
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented && !event.isComposing) { setExpanded(false); trigger.current?.focus(); } };
     document.addEventListener("keydown", escape);
-    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
+    return () => document.removeEventListener("keydown", escape);
   }, [expanded]);
-  return <div className="appearanceMenu" ref={host}>
-    <button ref={trigger} type="button" className="appearanceMenuButton" aria-label="外观设置" title="外观设置" aria-haspopup="dialog" aria-expanded={expanded} aria-controls="appearance-menu-panel" onClick={() => setExpanded((value) => !value)}>
+  return <div className="appearanceMenu">
+    <button ref={trigger} type="button" className="appearanceMenuButton" aria-label="外观设置" title="外观设置" aria-haspopup="dialog" aria-expanded={expanded} aria-controls="appearance-menu-panel" onClick={() => setExpanded(true)}>
       <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 1.4-3.4 1.5 1.5 0 0 1 1.1-2.6h1a4 4 0 0 0 4-4c0-4.4-4-8-9-8Z" /><circle cx="7.5" cy="10" r=".8" /><circle cx="10.5" cy="6.8" r=".8" /><circle cx="15" cy="7.5" r=".8" /><circle cx="6.8" cy="14.5" r=".8" /></svg>
     </button>
-    {expanded && <div ref={panel} id="appearance-menu-panel" className="appearanceMenuPanel" role="dialog" aria-label="外观设置"><ThemePicker {...props} defaultPanel="theme" /></div>}
+    {expanded && <div ref={panel} id="appearance-menu-panel" className="appearanceMenuPanel" style={panelStyle} role="dialog" aria-label="外观设置"><header className="appearanceMenuHeader"><strong>外观设置</strong><button type="button" className="appearanceMenuClose" aria-label="关闭外观设置" title="关闭" onClick={() => { setExpanded(false); trigger.current?.focus(); }}>×</button></header><ThemePicker {...props} defaultPanel="theme" /></div>}
   </div>;
 }
 
@@ -43,7 +55,7 @@ export default function ThemePicker({ color, designMode, presets, onChange, onDe
   color: string; designMode: "classic" | "paper"; presets: string[]; onChange: (color: string) => boolean; onDesignChange: (mode: "classic" | "paper") => void; defaultPanel?: "theme" | "more" | null;
 }) {
   const { preference: background, choose: chooseBackground } = useBackgroundAppearance();
-  const [open, setOpen] = useState<"theme" | "more" | null>(defaultPanel);
+  const [open, setOpen] = useState<"theme" | "background" | "more" | null>(defaultPanel);
   const [savedColors, setSavedColors] = useState<string[]>([]);
   const [recentColors, setRecentColors] = useState<string[]>([]);
   const [combinations, setCombinations] = useState<AppearancePreset[]>([]);
@@ -58,9 +70,6 @@ export default function ThemePicker({ color, designMode, presets, onChange, onDe
   const [combinationQuery, setCombinationQuery] = useState("");
   const [showAllCombinations, setShowAllCombinations] = useState(false);
   const [message, setMessage] = useState("");
-  const pickerRef = useRef<HTMLDivElement>(null);
-  const themeRef = useRef<HTMLButtonElement>(null);
-  const moreRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const restore = () => {
       try { setSavedColors(readColors(savedThemeColorsKey)); setRecentColors(readColors(recentThemeColorsKey).slice(0, 4)); } catch { /* Preserve visible colors when storage is unavailable. */ }
@@ -77,13 +86,6 @@ export default function ThemePicker({ color, designMode, presets, onChange, onDe
     window.addEventListener("storage", sync);
     return () => window.removeEventListener("storage", sync);
   }, []);
-  useEffect(() => {
-    if (!open) return;
-    const dismiss = (event: MouseEvent) => { if (pickerRef.current && !event.composedPath().includes(pickerRef.current)) setOpen(null); };
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { setOpen(null); (open === "theme" ? themeRef : moreRef).current?.focus(); } };
-    document.addEventListener("click", dismiss); document.addEventListener("keydown", escape);
-    return () => { document.removeEventListener("click", dismiss); document.removeEventListener("keydown", escape); };
-  }, [open]);
   const storeColors = (key: string, colors: string[]) => { try { localStorage.setItem(key, JSON.stringify(colors)); return true; } catch { return false; } };
   const choose = (tone: string) => {
     let current = recentColors;
@@ -151,11 +153,11 @@ export default function ThemePicker({ color, designMode, presets, onChange, onDe
   const common = [...new Set([color.toLowerCase(), ...recentColors, ...presets])];
   const filteredCombinations = combinations.filter((item) => appearancePresetMatches(item, combinationQuery));
   const visibleCombinations = combinationQuery.trim() || showAllCombinations ? filteredCombinations : filteredCombinations.slice(0, 6);
-  const toggle = (panel: "theme" | "more") => { setOpen(open === panel ? null : panel); setDraft(color); setColorName(colorNames[color.toLowerCase()] ?? ""); setMessage(""); setRenaming(null); setCombinationTheme(color); setCombinationBackground(backgroundPreview(background)); setBackgroundEdited(false); setName(""); };
-  return <div ref={pickerRef} className="themePicker appearanceToolbar" aria-label="界面外观">
-    <button ref={themeRef} type="button" className="appearanceControl" aria-label="主题色设置" aria-expanded={open === "theme"} aria-controls="theme-color-options" onClick={() => toggle("theme")}><i className="appearancePreview" style={{ backgroundColor: color }} aria-hidden="true" />主题色</button>
-    <BackgroundPicker onOpen={() => { setOpen(null); setMessage(""); }} />
-    <button ref={moreRef} type="button" className="appearanceControl" aria-label="配色组合设置" aria-expanded={open === "more"} aria-controls="appearance-more-options" onClick={() => toggle("more")}>组合</button>
+  const selectPanel = (panel: "theme" | "more") => { if (open === panel) return; setOpen(panel); setDraft(color); setColorName(colorNames[color.toLowerCase()] ?? ""); setMessage(""); setRenaming(null); setCombinationTheme(color); setCombinationBackground(backgroundPreview(background)); setBackgroundEdited(false); setName(""); };
+  return <div className="themePicker appearanceToolbar" aria-label="界面外观">
+    <button type="button" className="appearanceControl" aria-label="主题色设置" aria-expanded={open === "theme"} aria-controls="theme-color-options" onClick={() => selectPanel("theme")}><i className="appearancePreview" style={{ backgroundColor: color }} aria-hidden="true" />主题色</button>
+    <BackgroundPicker open={open === "background"} onOpen={() => { setOpen("background"); setMessage(""); }} onClose={() => setOpen(null)} />
+    <button type="button" className="appearanceControl" aria-label="配色组合设置" aria-expanded={open === "more"} aria-controls="appearance-more-options" onClick={() => selectPanel("more")}>组合</button>
     {open === "theme" && <div id="theme-color-options" className="themeColorPanel" role="dialog" aria-label="主题色设置">
       <div className="themeColorSection"><h2>常用颜色</h2><div className="themeColorGrid" role="group" aria-label="常用颜色">{common.map(swatch)}</div></div>
       <form className="themeCustomForm" onKeyDown={submitFormOnEnter} onSubmit={(event) => { event.preventDefault(); saveColor(); }}><h2>自定义颜色</h2><div className="themeCustomFields"><input className="themeColorInput" type="color" aria-label="自定义主题色" value={normalizeColor(draft) || color} onChange={(event) => { setDraft(event.target.value); setMessage(""); }} /><input className="themeHexInput" type="text" aria-label="自定义颜色值" placeholder="#80674d" value={draft} maxLength={7} spellCheck={false} autoComplete="off" onChange={(event) => { setDraft(event.target.value); setMessage(""); }} /><button className="themeSaveButton" type="submit">保存并应用</button></div><label className="savedColorNameLabel">名称（可选）<input className="savedColorNameInput" aria-label="主题色名称" maxLength={80} value={colorName} placeholder="例如：暖棕" onChange={(event) => setColorName(event.target.value)} /></label></form>

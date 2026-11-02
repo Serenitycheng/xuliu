@@ -3,7 +3,11 @@
 .appearanceMenu { position: relative; flex: 0 0 auto; }
 .shell .appearanceMenuButton { display: grid; place-items: center; width: 35px; height: 35px; padding: 0; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); background: var(--paper-soft); }
 .appearanceMenuButton:hover, .appearanceMenuButton[aria-expanded="true"] { color: var(--text); border-color: var(--line-strong); }
-.appearanceMenuPanel { position: absolute; z-index: 40; top: calc(100% + 10px); right: 0; width: min(340px, calc(100vw - 32px)); max-height: min(620px, calc(100dvh - 180px)); overflow-y: auto; overscroll-behavior: contain; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); box-shadow: var(--shadow); }
+.appearanceMenuPanel { position: fixed; z-index: 95; top: 16px; right: 16px; width: min(340px, calc(100vw - 32px)); max-height: min(620px, calc(100dvh - 32px)); overflow-y: auto; overscroll-behavior: contain; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); box-shadow: var(--shadow); }
+.appearanceMenuHeader { position: sticky; top: -12px; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -12px -12px 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--paper); }
+.appearanceMenuHeader strong { font-size: 12px; font-weight: 600; }
+.appearanceMenuClose { display: grid; place-items: center; flex-shrink: 0; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: 24px; line-height: 1; }
+.appearanceMenuClose:hover { color: var(--text); background: var(--paper-soft); }
 .shell .appearanceMenuPanel .themePicker { position: static; flex-wrap: wrap; gap: 4px; width: 100%; max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
 .appearanceMenuPanel .backgroundPicker { display: contents; }
 .appearanceMenuPanel .appearanceControl { order: 0; }
@@ -44,4 +48,4 @@
 .appearanceMenuPanel .themeColorGrid .themeSwatch { width: 23px; height: 23px; }
 .appearanceMenuPanel .themeCustomForm { margin-top: 13px; padding-top: 13px; }
 @media (max-width: 620px) { .themePicker.appearanceToolbar { flex-wrap: nowrap; gap: 2px; } .appearanceToolbar .appearanceControl { padding: 7px 9px; } }
-@media (max-width: 760px) { .pageHead:has(.appearanceMenu) { grid-template-columns: minmax(0, 1fr); } .pageHeadActions:has(> .appearanceMenu) { justify-content: flex-end; } .appearanceMenuPanel { max-height: calc(100dvh - 340px); } }
+@media (max-width: 760px) { .pageHead:has(.appearanceMenu) { grid-template-columns: minmax(0, 1fr); } .pageHeadActions:has(> .appearanceMenu) { justify-content: flex-end; } }

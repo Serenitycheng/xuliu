@@ -110,24 +110,15 @@ export function useBackgroundAppearance() {
   return { preference, choose };
 }
 
-export function BackgroundPicker({ onOpen }: { onOpen?: () => void }) {
+export function BackgroundPicker({ open, onOpen, onClose }: { open: boolean; onOpen: () => void; onClose: () => void }) {
   const preference = useContext(PreferenceContext);
   const { resetPreview } = useContext(ControlsContext);
-  const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
-  const host = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
-  const close = useCallback(() => { resetPreview(); setOpen(false); }, [resetPreview]);
-  useEffect(() => {
-    if (!open) return;
-    const outside = (event: MouseEvent) => { if (event.target instanceof Node && host.current && !event.composedPath().includes(host.current)) close(); };
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { close(); button.current?.focus(); } };
-    document.addEventListener("click", outside); document.addEventListener("keydown", escape);
-    return () => { document.removeEventListener("click", outside); document.removeEventListener("keydown", escape); };
-  }, [open, close]);
-  return <div ref={host} className="backgroundPicker">
-    <button type="button" className="appearanceControl backgroundEntry" ref={button} aria-label="背景设置" aria-expanded={open} aria-controls="background-options" onClick={() => { if (open) close(); else { onOpen?.(); setMessage(""); setOpen(true); } }}><i className="appearancePreview" aria-hidden="true" style={{ backgroundColor: preference.mode === "custom" ? preference.color : preference.mode === "dark" ? "#171c20" : "var(--bg)" }} />背景色</button>
-    {open && <BackgroundEditor preference={preference} onClose={close} onSaved={(saved) => { setMessage(saved ? "" : "已应用，浏览器暂时无法保存"); close(); button.current?.focus(); }} />}
+  const close = useCallback(() => { resetPreview(); onClose(); }, [resetPreview, onClose]);
+  return <div className="backgroundPicker">
+    <button type="button" className="appearanceControl backgroundEntry" ref={button} aria-label="背景设置" aria-expanded={open} aria-controls="background-options" onClick={() => { if (!open) { onOpen(); setMessage(""); } }}><i className="appearancePreview" aria-hidden="true" style={{ backgroundColor: preference.mode === "custom" ? preference.color : preference.mode === "dark" ? "#171c20" : "var(--bg)" }} />背景色</button>
+    {open && <BackgroundEditor preference={preference} onClose={close} onSaved={(saved) => { setMessage(saved ? "已应用背景" : "已应用，浏览器暂时无法保存"); button.current?.focus(); }} />}
     {message && <p className="backgroundSaveMessage" role="status">{message}</p>}
   </div>;
 }
