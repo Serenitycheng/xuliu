@@ -1,10 +1,13 @@
 import { isValidLocalDate } from "./finance.ts";
+import type { AssessmentType } from "./course-events.ts";
 
 export type TaskMode = "single" | "multi";
 export type TaskProgressStatus = "未开始" | "进行中" | "已暂停" | "已完成";
 
 export type TaskScheduleLike = {
   id?: string;
+  title?: string;
+  assessmentType?: AssessmentType;
   due?: string;
   dueTime?: string;
   plannedDate?: string;
@@ -30,17 +33,23 @@ export function isTaskNode(node: Pick<TaskScheduleLike, "courseId" | "alsoTask">
   return Boolean(node.courseId || node.alsoTask);
 }
 
+export function isPreparationEventTask(task: TaskScheduleLike) {
+  return Boolean(task.alsoTask && !task.courseId && !task.automationKey && (task.assessmentType === "presentation" || task.assessmentType === "paper"
+    || task.assessmentType === "submission" && /论文|\b(?:essays?|papers?|thesis|theses|dissertations?)\b/i.test(task.title?.normalize("NFKC") ?? "")));
+}
+
 export function defaultTaskPlannedDate(task: TaskScheduleLike) {
   const deadline = task.due || (isTaskNode(task) ? task.date : undefined);
   const cancelledManualPlan = deadline && task.plannedDate === task.dismissedTodayDate && !task.automationKey && !task.id?.startsWith("stage:") && taskModeOf(task) === "single";
   if (task.plannedDate && !cancelledManualPlan) return task.plannedDate;
-  if (taskModeOf(task) === "multi" || task.automationKey) return undefined;
+  const preparation = taskModeOf(task) === "multi" && isPreparationEventTask(task);
+  if (taskModeOf(task) === "multi" && !preparation || task.automationKey) return undefined;
   if (!deadline || !/^\d{4}-\d{2}-\d{2}$/.test(deadline)) return undefined;
   const [year, month, day] = deadline.split("-").map(Number);
   const date = new Date(0);
   date.setUTCFullYear(year, month - 1, day);
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return undefined;
-  date.setUTCDate(date.getUTCDate() - 2);
+  date.setUTCDate(date.getUTCDate() - (preparation ? 7 : 2));
   if (date.getUTCFullYear() < 1) return undefined;
   return `${String(date.getUTCFullYear()).padStart(4, "0")}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
 }
@@ -102,8 +111,25 @@ export function courseNodeVisibleToday(node: TaskScheduleLike & { date: string; 
     const continued = continuationVisibleOn(node, targetDate);
     if (continued !== undefined) return continued;
   }
-  if (isTaskNode(node) && node.mode === "multi") return longTaskInTodayWindow(node, targetDate);
+  if (isTaskNode(node) && taskModeOf(node) === "multi") return isPreparationEventTask(node) ? preparationTaskInTodayWindow(node, targetDate) : longTaskInTodayWindow(node, targetDate);
   return node.date === targetDate || Boolean(isTaskNode(node) && defaultTaskPlannedDate(node) === targetDate);
+}
+
+function preparationTaskInTodayWindow(task: TaskScheduleLike, targetDate: string) {
+  if (!isValidLocalDate(targetDate)) return false;
+  const planned = defaultTaskPlannedDate(task);
+  const deadline = task.due || task.date;
+  return Boolean(planned && isValidLocalDate(planned) && planned <= targetDate
+    || deadline && isValidLocalDate(deadline) && deadline <= targetDate);
+}
+
+export function taskAwaitingStart(task: TaskScheduleLike, targetDate: string) {
+  if (!task.alsoTask || task.courseId || task.automationKey || !isValidLocalDate(targetDate) || taskStatusOf(task) === "已完成") return false;
+  const deadline = task.due || task.date;
+  if (deadline && isValidLocalDate(deadline) && deadline <= targetDate) return false;
+  if (task.today || task.progressedDates?.length || taskStatusOf(task) === "进行中" || taskProgressOf(task) > 0 || task.progressLogs?.some((entry) => entry.progress > 0)) return false;
+  const planned = defaultTaskPlannedDate(task);
+  return planned ? isValidLocalDate(planned) && planned > targetDate : isPreparationEventTask(task);
 }
 
 function longTaskInTodayWindow(task: TaskScheduleLike, targetDate: string) {
@@ -136,7 +162,7 @@ export function withWorkCompletionDates<T extends TaskScheduleLike & { id: strin
 }
 
 export function taskModeOf(task: TaskScheduleLike): TaskMode {
-  return task.mode === "multi" ? "multi" : "single";
+  return task.mode === "multi" || task.mode === "single" ? task.mode : isPreparationEventTask(task) ? "multi" : "single";
 }
 
 export function taskProgressOf(task: TaskScheduleLike) {
@@ -151,32 +177,39 @@ export function taskStatusOf(task: TaskScheduleLike): TaskProgressStatus {
   return "未开始";
 }
 
-export function taskScheduledForDate(task: TaskScheduleLike, targetDate: string) {
+export function taskScheduledForDate(task: TaskScheduleLike, targetDate: string): boolean {
+  if (isPreparationEventTask(task) && taskModeOf(task) === "multi") return taskVisibleToday(task, targetDate);
+  const deadline = task.due || (isTaskNode(task) ? task.date : undefined);
   if (defaultTaskPlannedDate(task) === targetDate) return true;
-  if (taskModeOf(task) === "single") return task.due === targetDate
+  if (taskModeOf(task) === "single") return deadline === targetDate
     || Boolean(task.progressLogs?.some((entry) => entry.date === targetDate));
-  const start = task.startDate || task.due || targetDate;
-  const due = task.due || "9999-12-31";
+  const start = task.startDate || deadline || targetDate;
+  const due = deadline || "9999-12-31";
   return start <= targetDate && targetDate <= due
     || Boolean(task.progressLogs?.some((entry) => entry.date === targetDate));
 }
 
-export function taskVisibleToday(task: TaskScheduleLike, targetDate: string) {
+export function taskVisibleToday(task: TaskScheduleLike, targetDate: string): boolean {
   if (task.dismissedTodayDate === targetDate) return false;
   if (taskStatusOf(task) === "已完成") return taskCompletionDate(task) === targetDate;
   const continued = continuationVisibleOn(task, targetDate);
   if (continued !== undefined) return continued;
-  if (taskModeOf(task) === "multi") return longTaskInTodayWindow(task, targetDate);
+  if (taskModeOf(task) === "multi") return isPreparationEventTask(task) ? preparationTaskInTodayWindow(task, targetDate) : longTaskInTodayWindow(task, targetDate);
   if (task.plannedDate === targetDate) return true;
   return taskScheduledForDate(task, targetDate) || (!task.due && !task.plannedDate && task.today === true);
 }
 
 export function taskOverlapsRange(task: TaskScheduleLike, rangeStart: string, rangeEnd: string) {
+  if (isPreparationEventTask(task) && taskModeOf(task) === "multi") {
+    return [rangeStart, rangeEnd, defaultTaskPlannedDate(task), task.date, task.due, taskCompletionDate(task), ...(task.progressedDates ?? [])]
+      .some((date) => Boolean(date && date >= rangeStart && date <= rangeEnd && taskVisibleToday(task, date)));
+  }
   const plannedDate = defaultTaskPlannedDate(task);
+  const deadline = task.due || (isTaskNode(task) ? task.date : undefined);
   if (plannedDate && plannedDate >= rangeStart && plannedDate <= rangeEnd) return true;
-  if (taskModeOf(task) === "single") return [task.due, plannedDate].some((date) => Boolean(date && date >= rangeStart && date <= rangeEnd));
-  const start = task.startDate || task.due || rangeStart;
-  const due = task.due || "9999-12-31";
+  if (taskModeOf(task) === "single") return [deadline, plannedDate].some((date) => Boolean(date && date >= rangeStart && date <= rangeEnd));
+  const start = task.startDate || deadline || rangeStart;
+  const due = deadline || "9999-12-31";
   return start <= rangeEnd && due >= rangeStart;
 }
 

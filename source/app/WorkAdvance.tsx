@@ -11,10 +11,15 @@ export function WorkProgressBadge({ work, date }: { work: TaskScheduleLike; date
   return <span className="workProgressBadge">✓ 今日已推进{!work.done && work.plannedDate && work.plannedDate > date && <small> · {work.plannedDate === nextWorkDate(date) ? "明天" : work.plannedDate}继续</small>}</span>;
 }
 
-export function WorkAdvanceButton({ work, date, disabled, onClick }: { work: TaskScheduleLike & { title: string }; date: string; disabled: boolean; onClick: () => void }) {
+export function WorkAdvanceButton({ work, date, disabled, onClick, withMenu = false }: { work: TaskScheduleLike & { title: string }; date: string; disabled: boolean; onClick: () => void; withMenu?: boolean }) {
   if (work.done || work.status === "已完成") return null;
   const advanced = workProgressedOn(work, date);
-  return <button type="button" className="softButton workAdvanceButton" disabled={disabled} aria-label={(advanced ? "调整继续日期：" : "今天先到这：") + work.title} onClick={onClick}>{advanced ? "调整继续日期" : "今天先到这"}</button>;
+  const button = <button type="button" className="softButton workAdvanceButton" disabled={disabled} aria-label={(advanced ? "调整继续日期：" : "今天先到这：") + work.title} onClick={(event) => {
+    const menu = event.currentTarget.closest("details");
+    if (menu) { menu.open = false; menu.querySelector("summary")?.focus(); }
+    onClick();
+  }}>{advanced ? "调整继续日期" : "今天先到这"}</button>;
+  return withMenu ? <details className="taskMoreActions"><summary aria-label={"更多操作：" + work.title}>更多</summary><div>{button}</div></details> : button;
 }
 
 export function WorkAdvanceDialog({ work, onClose, onSave }: { work: TaskScheduleLike & { title: string }; onClose: () => void; onSave: (date: string, nextDate: string) => void }) {

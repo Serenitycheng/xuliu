@@ -102,6 +102,18 @@ const financeEntry = z.object({
   }
 });
 
+const examReview = z.object({
+  note: text,
+  steps: z.array(z.object({ id, title: shortText.refine((value) => Boolean(value.trim()), "请填写复习任务内容"), done: z.boolean(), selectedDate: date.optional(), completedDate: date.optional() }).strict()).max(50),
+}).strict().superRefine((review, context) => {
+  const ids = new Set<string>();
+  for (const [index, step] of review.steps.entries()) {
+    if (ids.has(step.id)) context.addIssue({ code: "custom", path: ["steps", index, "id"], message: "复习任务编号不能重复" });
+    ids.add(step.id);
+    if (!step.done && step.completedDate) context.addIssue({ code: "custom", path: ["steps", index, "completedDate"], message: "未完成的复习任务不能设置完成日期" });
+  }
+});
+
 const courseReviewPool = z.object({
   version: z.literal(1),
   items: z.array(z.object({
@@ -157,7 +169,7 @@ export const workspaceStateSchema = z.object({
     if (task.dueTime && !task.due) context.addIssue({ code: "custom", message: "设置截止时间前请先选择截止日期" });
   })).max(10_000),
   milestones: z.array(z.object({
-    id, courseId: id.optional(), linkedCourseId: id.optional(), courseLinkReviewed: z.boolean().optional(), alsoTask: z.boolean().optional(), showOnCalendar: z.boolean().optional(), assessmentType: z.enum(["exam", "quiz", "submission", "presentation"]).optional(), eventDateKind: z.enum(["occurs", "deadline"]).optional(),
+    id, courseId: id.optional(), linkedCourseId: id.optional(), courseLinkReviewed: z.boolean().optional(), alsoTask: z.boolean().optional(), showOnCalendar: z.boolean().optional(), assessmentType: z.enum(["exam", "quiz", "submission", "presentation", "paper"]).optional(), eventDateKind: z.enum(["occurs", "deadline"]).optional(), examReview: examReview.optional(),
     automationKey: shortText.optional(), title: shortText, date: z.union([date, z.literal("")]), time: z.union([time, z.literal("")]), plannedDate: date.optional(), progressedDates: z.array(date).max(36_600).optional(), completedDate: date.optional(), dismissedTodayDate: date.optional(), location: shortText, requirements: text,
     attachments: z.array(storedAttachment).max(50).optional(), outcomeText: text.optional(), outcomeAttachments: z.array(storedAttachment).max(50).optional(), blocks: z.array(block).max(2000).optional(), elapsed: z.number().int().min(0).max(10000000).optional(), mode: z.enum(["single", "multi"]).optional(), parentCandidate: z.boolean().optional(), area, done: z.boolean(),
   }).strict().superRefine((node, context) => {

@@ -1,6 +1,6 @@
 import { isCourseTitleCandidate } from "./timetable.ts";
 
-export type AssessmentType = "exam" | "quiz" | "submission" | "presentation";
+export type AssessmentType = "exam" | "quiz" | "submission" | "presentation" | "paper";
 export type EventDateKind = "occurs" | "deadline";
 export type CourseEventFields = { linkedCourseId?: string; assessmentType?: AssessmentType; eventDateKind?: EventDateKind; courseLinkReviewed?: boolean; alsoTask?: boolean };
 type CourseIdentity = { id: string; title: string };
@@ -15,6 +15,7 @@ export const assessmentTypeOptions: { value: AssessmentType; label: string }[] =
   { value: "quiz", label: "测验" },
   { value: "submission", label: "作业提交" },
   { value: "presentation", label: "报告 / 展示" },
+  { value: "paper", label: "论文提交" },
 ];
 
 export function assessmentTypeLabel(value?: AssessmentType) {

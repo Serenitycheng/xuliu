@@ -12,8 +12,10 @@ const AttachmentPreview = dynamic(() => import("./AttachmentPreview"), { ssr: fa
 
 import type { Block } from "./DashboardClient";
 import type { CourseEventFields } from "@/lib/course-events";
+import type { ExamReviewData } from "@/lib/exam-review-pool";
 
 export type CourseNode = CourseEventFields & {
+  examReview?: ExamReviewData;
   blocks?: Block[]; elapsed?: number; mode?: "single" | "multi"; parentCandidate?: boolean; automationKey?: string;
   id: string; courseId?: string; title: string; date: string; time: string; location: string; plannedDate?: string; progressedDates?: string[]; showOnCalendar?: boolean; completedDate?: string; dismissedTodayDate?: string;
   requirements: string; attachments?: NodeAttachment[];

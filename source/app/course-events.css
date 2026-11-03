@@ -41,3 +41,14 @@
   .courseEventFields, .courseEventExtraFields { gap: 13px 10px; }
   .courseEventFields input[type="date"], .courseEventFields input[type="time"] { padding-inline: 5px; }
 }
+.eventAreaTabs { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 12px; }
+.eventAreaTabs button { padding: 6px 11px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 12px; }
+.eventAreaTabs button[aria-pressed="true"] { color: var(--text); background: var(--paper-soft); font-weight: 600; }
+.overviewPending { min-width: 0; padding: 0 6px; }
+.overviewPending > summary { display: flex; align-items: center; gap: 8px; width: fit-content; padding: 5px 2px; color: var(--muted); font-size: 12px; cursor: pointer; list-style: none; }
+.overviewPending > summary::-webkit-details-marker { display: none; }
+.overviewPending > summary::before { content: "›"; display: inline-block; transition: transform .15s ease; }
+.overviewPending[open] > summary::before { transform: rotate(90deg); }
+.overviewPending > summary > span:last-child { color: var(--faint); font-size: 11px; }
+.overviewPending > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.overviewPending > .overviewList { margin-top: 8px; }
