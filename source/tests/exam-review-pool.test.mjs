@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { examReviewSummary, examReviewTodayCounts, isExamReviewEvent, updateExamReview } from '../lib/exam-review-pool.ts';
+import { examReviewSummary, examReviewTodayCounts, isExamReviewCandidate, isExamReviewEvent, setExamReviewExcluded, updateExamReview } from '../lib/exam-review-pool.ts';
 import { createReviewPoolStep, editReviewPoolStep, reviewPoolReadProjection, withoutReviewPoolSources } from '../lib/course-review-pool.ts';
 import { aiCourseContextFromWorkspace } from '../lib/ai-course-context.ts';
 import { createEmptyWorkspaceState, workspaceStateSchema } from '../lib/workspace-state-schema.ts';
+import { manualCalendarItems } from '../lib/calendar-items.ts';
+import { upcomingDeadlines } from '../lib/upcoming-deadlines.ts';
 
 const today = '2026-11-03';
 const tomorrow = '2026-11-04';
@@ -131,4 +133,82 @@ test('保存导出往返和AI读取投影保留考试及复习数据，不转入
   assert.equal(context.upcomingMilestones[0].title, original.title);
   assert.equal(decoded.tasks.length, 0);
   assert.equal(decoded.reviewPool.items.length, 0);
+});
+
+test('移出考试复习池仅改变入池标记，今日计数排除而原事项和日期完整保留', () => {
+  const original = event({ title: '体测 1800 米', date: '2026-11-10', examReview: { note: '保留复习笔记', steps: [
+    { id: 'selected', title: '已选今天', done: false, selectedDate: today },
+    { id: 'completed', title: '已完成', done: true, selectedDate: today, completedDate: today },
+  ] }, blocks: [{ id: 'note', type: 'text', text: '原说明' }], attachments: [] });
+  const before = JSON.stringify(original);
+  assert.deepEqual(examReviewTodayCounts([original], today), { total: 2, completed: 1 });
+  const excluded = setExamReviewExcluded(original, true);
+  assert.equal(isExamReviewCandidate(excluded), true);
+  assert.equal(isExamReviewEvent(excluded), false);
+  assert.deepEqual(excluded, { ...original, examReview: { ...original.examReview, excluded: true } });
+  assert.equal(excluded.examReview.steps, original.examReview.steps);
+  assert.equal(excluded.blocks, original.blocks);
+  assert.equal(excluded.attachments, original.attachments);
+  assert.deepEqual(examReviewTodayCounts([excluded], today), { total: 0, completed: 0 });
+  assert.equal(manualCalendarItems({ tasks: [], milestones: [excluded] })[0].item, excluded);
+  assert.deepEqual(upcomingDeadlines([], [excluded], today), upcomingDeadlines([], [original], today));
+  assert.equal(upcomingDeadlines([], [excluded], today).length, 1);
+  assert.equal(JSON.stringify(original), before);
+});
+
+test('恢复考试保留选中日、旧完成日期与笔记，移出后修改原事项也不回滚', () => {
+  const original = event({ examReview: { note: '原备注', steps: [
+    { id: 'one', title: '旧复习', done: true, selectedDate: '2026-11-01', completedDate: '2026-11-01' },
+    { id: 'two', title: '今日复习', done: false, selectedDate: today },
+    { id: 'unknown', title: '未知完成日期', done: true },
+  ] } });
+  const excluded = setExamReviewExcluded(original, true);
+  assert.equal(setExamReviewExcluded(excluded, true), excluded);
+  const restored = setExamReviewExcluded(excluded, false);
+  assert.deepEqual(restored, original);
+  assert.equal(Object.hasOwn(restored.examReview, 'excluded'), false);
+  assert.deepEqual(examReviewTodayCounts([restored], today), { total: 1, completed: 0 });
+  const changed = { ...excluded, title: '改名后的测验', date: '2026-11-20', assessmentType: 'quiz', done: true };
+  assert.deepEqual(setExamReviewExcluded(changed, false), { ...original, title: changed.title, date: changed.date, assessmentType: 'quiz', done: true });
+  assert.equal(setExamReviewExcluded(restored, false), restored);
+});
+
+test('旧考试默认入池，未有复习数据也可移出恢复，非考试不可设置入池标记', () => {
+  const old = event();
+  assert.equal(isExamReviewCandidate(old), true);
+  assert.equal(isExamReviewEvent(old), true);
+  assert.equal(setExamReviewExcluded(old, false), old);
+  const excluded = setExamReviewExcluded(old, true);
+  assert.deepEqual(excluded.examReview, { note: '', steps: [], excluded: true });
+  const restored = setExamReviewExcluded(excluded, false);
+  assert.equal(isExamReviewEvent(restored), true);
+  assert.deepEqual(restored.examReview, { note: '', steps: [] });
+  assert.equal(old.examReview, undefined);
+  for (const item of [event({ assessmentType: 'paper' }), event({ assessmentType: 'submission' }), event({ courseId: 'course-task' })]) {
+    assert.equal(isExamReviewCandidate(item), false);
+    assert.throws(() => setExamReviewExcluded(item, true));
+  }
+});
+
+test('普通复习编辑保留已有状态且不能修改入池标记，移出后须先恢复再编辑', () => {
+  const included = event({ examReview: { note: '原备注', steps: [], excluded: false } });
+  const updated = updateExamReview(included, { note: '新备注', excluded: true }, today);
+  assert.equal(updated.examReview.excluded, false);
+  assert.equal(updated.examReview.note, '新备注');
+  const excluded = setExamReviewExcluded(updated, true);
+  assert.throws(() => updateExamReview(excluded, { note: '不能更新', excluded: false }, today));
+  assert.equal(excluded.examReview.note, '新备注');
+});
+
+test('排除状态通过严格保存导出合同并保留AI原事项读取，非法标记被拒绝', () => {
+  const node = setExamReviewExcluded(event({ examReview: { note: '完整保留', steps: [{ id: 'old', title: '原任务', done: true }] } }), true);
+  const state = { ...stateWith(node), reviewPool: { version: 1, items: [] } };
+  const saved = workspaceStateSchema.parse(JSON.parse(JSON.stringify(state)));
+  assert.deepEqual(saved, state);
+  assert.deepEqual(reviewPoolReadProjection(saved).milestones, [node]);
+  assert.deepEqual(withoutReviewPoolSources(saved).milestones, [node]);
+  assert.equal(isExamReviewEvent(saved.milestones[0]), false);
+  assert.equal(isExamReviewEvent(setExamReviewExcluded(saved.milestones[0], false)), true);
+  for (const excluded of ['true', 1, null]) assert.equal(workspaceStateSchema.safeParse(stateWith(event({ examReview: { note: '', steps: [], excluded } }))).success, false);
+  assert.equal(workspaceStateSchema.safeParse(stateWith(event({ examReview: { note: '', steps: [], excluded: false } }))).success, true);
 });

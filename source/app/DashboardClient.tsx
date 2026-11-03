@@ -6,7 +6,7 @@ import { useBackgroundAccent } from "./BackgroundAppearance";
 import { AppearanceMenu } from "./ThemePicker";
 import { WorkAdvanceButton, WorkAdvanceDialog, WorkProgressBadge } from "./WorkAdvance";
 import { ExamReviewPoolDialog, ExamReviewPoolEntry, ExamReviewToday } from "./ExamReviewPool";
-import { examReviewTodayCounts, isExamReviewEvent, updateExamReview, type ExamReviewData } from "@/lib/exam-review-pool";
+import { examReviewTodayCounts, isExamReviewCandidate, isExamReviewEvent, setExamReviewExcluded, updateExamReview, type ExamReviewData } from "@/lib/exam-review-pool";
 import { CourseEventDialog } from "./CourseEventDialog";
 import { assessmentTypeLabel, assessmentTypeOptions, eventCourseChoices, eventCourseLabel, eventDateLabel, migrateCourseEvents } from "@/lib/course-events";
 import { isFormSaveEnter as isDialogSaveEnter, submitFormOnEnter } from "./form-keyboard";
@@ -891,6 +891,8 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
     {reviewPoolOpen !== null && data.reviewPool && <CourseReviewPoolDialog key={reviewPoolOpen} items={data.reviewPool.items} courseNames={eventCourseChoices(data.courses).map((course) => course.title)} today={reviewDate} readOnly={readOnly} initialItemId={reviewPoolOpen} onClose={() => setReviewPoolOpen(null)} onChange={changeReviewItem} onDelete={(id) => { if (!readOnly) setData((current) => deleteReviewPoolItem(current, id)); }} onRestore={(item, index) => { if (!readOnly) setData((current) => restoreReviewPoolItem(current, item, index)); }} onCreate={(item) => { if (!readOnly) setData((current) => !current.reviewPool || current.reviewPool.items.length >= 500 || current.reviewPool.items.some((existing) => existing.id === item.id) ? current : { ...current, reviewPool: { ...current.reviewPool, items: [...current.reviewPool.items, item] } }); }} renderSources={(item) => <ReviewPoolSourceDetails item={item} data={data} access={{ ownerId: workspaceOwner, readOnly, preview }} />} />}
     {examPoolOpen !== null && <ExamReviewPoolDialog key={workspaceOwner + examPoolOpen} events={data.milestones} courses={data.courses} today={reviewDate} readOnly={readOnly} initialEventId={examPoolOpen} onClose={() => setExamPoolOpen(null)} onChange={changeExamReview} onCreateExam={() => setExamEventDraft("new")} onEditExam={setExamEventDraft} onToggleExam={(id) => {
       if (!readOnly) setData((current) => ({ ...current, milestones: current.milestones.map((node) => node.id === id && isExamReviewEvent(node) ? { ...node, done: !node.done } : node) }));
+    }} onExcludeExam={(id, excluded) => {
+      if (!readOnly) setData((current) => ({ ...current, milestones: current.milestones.map((node) => node.id === id && isExamReviewCandidate(node) ? setExamReviewExcluded(node, excluded) : node) }));
     }} />}
     {(examEventDraft === "new" || editingExam) && <CourseEventDialog key={examEventDraft} node={editingExam} defaultAssessmentType="exam" courses={data.courses} readOnly={readOnly} onClose={() => setExamEventDraft(null)} onSave={(node) => {
       if (readOnly) return;

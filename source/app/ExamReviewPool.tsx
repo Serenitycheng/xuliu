@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createReviewPoolStep, editReviewPoolStep, reviewPoolStepVisibleOnDate, type ReviewPoolStep } from "@/lib/course-review-pool";
-import { examReviewSummary, isExamReviewEvent, type ExamReviewData, type ExamReviewEvent } from "@/lib/exam-review-pool";
+import { examReviewSummary, isExamReviewCandidate, isExamReviewEvent, type ExamReviewData, type ExamReviewEvent } from "@/lib/exam-review-pool";
 import { submitFormOnEnter } from "./form-keyboard";
 import "./course-review-pool.css";
 import "./exam-review-pool.css";
@@ -87,24 +87,44 @@ export function ExamReviewPoolEntry({ onOpen }: { onOpen: () => void }) {
   </button>;
 }
 
-export function ExamReviewPoolDialog({ events, courses, today, readOnly, initialEventId, onClose, onChange, onCreateExam, onEditExam, onToggleExam }: ExamReviewProps & {
+export function ExamReviewPoolDialog({ events, courses, today, readOnly, initialEventId, onClose, onChange, onCreateExam, onEditExam, onToggleExam, onExcludeExam }: ExamReviewProps & {
   initialEventId?: string;
   onClose: () => void;
   onCreateExam: () => void;
   onEditExam: (eventId: string) => void;
   onToggleExam: (eventId: string) => void;
+  onExcludeExam: (eventId: string, excluded: boolean) => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const initialRef = useRef<HTMLButtonElement>(null);
+  const undoRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const [query, setQuery] = useState("");
-  const [finished, setFinished] = useState(() => Boolean(events.find((event) => event.id === initialEventId)?.done));
+  const [scope, setScope] = useState<"active" | "finished" | "excluded">(() => {
+    const initial = events.find((event) => event.id === initialEventId);
+    return initial?.examReview?.excluded ? "excluded" : initial?.done ? "finished" : "active";
+  });
   const [expanded, setExpanded] = useState(() => new Set(initialEventId ? [initialEventId] : []));
+  const [removed, setRemoved] = useState<{ id: string; title: string } | null>(null);
+  const [focusEvent, setFocusEvent] = useState<string | null>(null);
   const exams = events.filter(isExamReviewEvent);
+  const excluded = events.filter((event) => isExamReviewCandidate(event) && event.examReview?.excluded);
   const search = query.trim().normalize("NFKC").toLocaleLowerCase();
-  const visible = exams.filter((event) => event.done === finished && (!search || `${event.title} ${courseOf(event, courses)}`.normalize("NFKC").toLocaleLowerCase().includes(search)))
+  const visible = (scope === "excluded" ? excluded : exams.filter((event) => event.done === (scope === "finished")))
+    .filter((event) => !search || `${event.title} ${courseOf(event, courses)}`.normalize("NFKC").toLocaleLowerCase().includes(search))
     .sort((left, right) => (left.date || "9999").localeCompare(right.date || "9999") || left.time.localeCompare(right.time));
+  const restoreExam = (event: ExamReviewEvent) => {
+    if (readOnly) return;
+    onExcludeExam(event.id, false);
+    setRemoved(null);
+    setQuery("");
+    setScope(event.done ? "finished" : "active");
+    setExpanded((current) => new Set([...current, event.id]));
+    setFocusEvent(event.id);
+  };
+  useEffect(() => { if (removed) undoRef.current?.focus(); }, [removed]);
+  useEffect(() => { if (focusEvent) { initialRef.current?.focus(); setFocusEvent(null); } }, [focusEvent]);
   useEffect(() => {
     const dialog = dialogRef.current;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -119,22 +139,28 @@ export function ExamReviewPoolDialog({ events, courses, today, readOnly, initial
       <button type="button" ref={closeRef} className="reviewPoolClose" aria-label="关闭考试复习池" onClick={onClose}>×</button>
     </div></header>
     <div className="reviewPoolContents">
-      <div className="examReviewFilters"><div className="examReviewScope" aria-label="考试状态"><button type="button" aria-pressed={!finished} onClick={() => setFinished(false)}>未结束 <span>{exams.filter((event) => !event.done).length}</span></button><button type="button" aria-pressed={finished} onClick={() => setFinished(true)}>已结束 <span>{exams.filter((event) => event.done).length}</span></button></div>
+      <div className="examReviewFilters"><div className="examReviewScope" aria-label="考试状态"><button type="button" aria-pressed={scope === "active"} onClick={() => setScope("active")}>未结束 <span>{exams.filter((event) => !event.done).length}</span></button><button type="button" aria-pressed={scope === "finished"} onClick={() => setScope("finished")}>已结束 <span>{exams.filter((event) => event.done).length}</span></button>{(excluded.length > 0 || scope === "excluded") && <button type="button" aria-pressed={scope === "excluded"} onClick={() => setScope("excluded")}>已移出 <span>{excluded.length}</span></button>}</div>
         <input type="search" aria-label="搜索考试" placeholder="搜索考试或课程" value={query} onChange={(event) => setQuery(event.target.value)} />
       </div>
-      {!visible.length && <p className="examReviewEmpty">{search ? "没有匹配的考试" : finished ? "暂无已结束考试" : "暂无考试"}</p>}
+      {removed && !readOnly && <div className="reviewPoolStepUndo"><span role="status">已移出 {removed.title}，原事项保留</span><button type="button" ref={undoRef} className="textButton" onClick={() => { const event = events.find((item) => item.id === removed.id); if (event && isExamReviewCandidate(event)) restoreExam(event); else setRemoved(null); }}>撤销</button></div>}
+      {scope === "excluded" && <p className="examReviewExcludedHint">原事项和复习内容均保留，可随时恢复。</p>}
+      {!visible.length && <p className="examReviewEmpty">{search ? "没有匹配的考试" : scope === "excluded" ? "暂无移出的考试" : scope === "finished" ? "暂无已结束考试" : "暂无考试"}</p>}
       <ul className="reviewPoolList examReviewExamList">{visible.map((event) => {
         const open = expanded.has(event.id);
         const review = reviewOf(event);
         const summary = examReviewSummary(event, today);
         const course = courseOf(event, courses);
+        if (scope === "excluded") return <li key={event.id} className="examReviewExam examReviewExcludedRow">
+          <div className="examReviewExamTitle"><strong>{event.title}</strong><span className="examReviewExamMeta">{course ? `${course} · ` : ""}{dateOf(event)}</span></div>
+          <button type="button" className="textButton" disabled={readOnly} aria-label={`恢复到考试复习池：${event.title}`} onClick={() => restoreExam(event)}>恢复到复习池</button>
+        </li>;
         return <li key={event.id} className="examReviewExam">
-          <button type="button" ref={initialEventId === event.id ? initialRef : undefined} className="examReviewExamToggle" aria-expanded={open} aria-label={`${open ? "收起" : "展开"}考试复习：${event.title}`} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(event.id)) next.delete(event.id); else next.add(event.id); return next; })}>
+          <button type="button" ref={(focusEvent ?? initialEventId) === event.id ? initialRef : undefined} className="examReviewExamToggle" aria-expanded={open} aria-label={`${open ? "收起" : "展开"}考试复习：${event.title}`} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(event.id)) next.delete(event.id); else next.add(event.id); return next; })}>
             <span className="examReviewExamTitle"><strong>{event.title}</strong><span className="examReviewExamMeta">{event.assessmentType === "quiz" ? "测验" : "考试"}{course ? ` · ${course}` : ""} · {dateOf(event)}</span><ExamTodaySummary event={event} today={today} /></span>
             <span className="examReviewExamCount">{summary.completed}/{summary.total}</span><span className={`reviewPoolDisclosure${open ? " reviewPoolDisclosureOpen" : ""}`} aria-hidden="true">›</span>
           </button>
           {open && <div className="reviewPoolDetails examReviewExamDetails">
-            <div className="reviewPoolItemActions"><button type="button" className="textButton" disabled={readOnly} onClick={() => onEditExam(event.id)}>修改考试</button><button type="button" className="textButton" disabled={readOnly} onClick={() => onToggleExam(event.id)}>{event.done ? "重新打开考试" : "标记考试结束"}</button></div>
+            <div className="reviewPoolItemActions"><button type="button" className="textButton" disabled={readOnly} onClick={() => onEditExam(event.id)}>修改考试</button><button type="button" className="textButton" disabled={readOnly} onClick={() => onToggleExam(event.id)}>{event.done ? "重新打开考试" : "标记考试结束"}</button><button type="button" className="textButton" disabled={readOnly} aria-label={`移出考试复习池：${event.title}`} title="仅移出复习池，保留原事项和复习内容" onClick={() => { onExcludeExam(event.id, true); setRemoved({ id: event.id, title: event.title }); }}>移出复习池</button></div>
             <ExamReviewSteps event={event} today={today} readOnly={readOnly} onChange={onChange} />
             <label className="reviewPoolNote"><span>进度与备注</span><textarea aria-label={`${event.title} 复习进度与备注`} rows={3} maxLength={4000} value={review.note} disabled={readOnly} onChange={(change) => onChange(event.id, { ...review, note: change.target.value })} /></label>
           </div>}

@@ -2,7 +2,7 @@ import type { AssessmentType } from "./course-events.ts";
 import { reviewPoolStepTodayCounts, reviewPoolStepVisibleOnDate, type ReviewPoolStep } from "./course-review-pool.ts";
 import { isValidLocalDate } from "./finance.ts";
 
-export type ExamReviewData = { note: string; steps: ReviewPoolStep[] };
+export type ExamReviewData = { note: string; steps: ReviewPoolStep[]; excluded?: boolean };
 export type ExamReviewEvent = {
   id: string; title: string; date: string; time: string; done: boolean;
   area: "课内" | "课外" | "工作" | "生活" | "思考";
@@ -10,8 +10,24 @@ export type ExamReviewEvent = {
   examReview?: ExamReviewData;
 };
 
-export function isExamReviewEvent(event: Pick<ExamReviewEvent, "courseId" | "assessmentType">) {
+export function isExamReviewCandidate(event: Pick<ExamReviewEvent, "courseId" | "assessmentType">) {
   return !event.courseId && (event.assessmentType === "exam" || event.assessmentType === "quiz");
+}
+
+export function isExamReviewEvent(event: Pick<ExamReviewEvent, "courseId" | "assessmentType" | "examReview">) {
+  return isExamReviewCandidate(event) && event.examReview?.excluded !== true;
+}
+
+export function setExamReviewExcluded<T extends ExamReviewEvent>(event: T, excluded: boolean): T {
+  if (!isExamReviewCandidate(event)) throw new Error("仅考试和测验事项可设置是否进入考试复习池");
+  if (typeof excluded !== "boolean") throw new Error("请选择有效的复习池状态");
+  const current = event.examReview;
+  if (excluded) {
+    return current?.excluded === true ? event : { ...event, examReview: { ...(current ?? { note: "", steps: [] }), excluded: true } };
+  }
+  if (current?.excluded === undefined) return event;
+  const { excluded: _excluded, ...review } = current;
+  return { ...event, examReview: review };
 }
 
 export function examReviewSummary(event: Pick<ExamReviewEvent, "examReview">, today: string) {
@@ -40,7 +56,7 @@ function validSteps(steps: ReviewPoolStep[]) {
 }
 
 /** Keep review preparation on the original event without changing its schedule or completion. */
-export function updateExamReview<T extends ExamReviewEvent>(event: T, patch: Partial<ExamReviewData>, today: string): T {
+export function updateExamReview<T extends ExamReviewEvent>(event: T, patch: Partial<Pick<ExamReviewData, "note" | "steps">>, today: string): T {
   if (!isExamReviewEvent(event)) throw new Error("仅考试和测验事项可编辑考试复习任务");
   if (!isValidLocalDate(today)) throw new Error("请选择有效日期");
   const current = event.examReview ?? { note: "", steps: [] };
@@ -57,5 +73,5 @@ export function updateExamReview<T extends ExamReviewEvent>(event: T, patch: Par
     return next;
   });
   if (!validSteps(steps)) throw new Error("每个考试最多 50 个复习任务，内容最多 500 字，编号不能重复且日期须有效");
-  return { ...event, examReview: { note, steps } };
+  return { ...event, examReview: { ...current, note, steps } };
 }

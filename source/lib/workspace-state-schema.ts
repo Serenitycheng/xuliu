@@ -104,6 +104,7 @@ const financeEntry = z.object({
 
 const examReview = z.object({
   note: text,
+  excluded: z.boolean().optional(),
   steps: z.array(z.object({ id, title: shortText.refine((value) => Boolean(value.trim()), "请填写复习任务内容"), done: z.boolean(), selectedDate: date.optional(), completedDate: date.optional() }).strict()).max(50),
 }).strict().superRefine((review, context) => {
   const ids = new Set<string>();
