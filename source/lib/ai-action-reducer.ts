@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { createInitialFinanceState, isValidLocalDate, isValidLocalTime, normalizeFinanceState, type FinanceEntry } from "./finance";
+import { normalizedHabit, setHabitCompletedForDate } from "./habit-streak";
 import type { AiEntity, AiOperation, AiWorkspaceProposalInput } from "./ai-action-schema";
 
 type JsonObject = Record<string, unknown>;
@@ -236,9 +237,8 @@ function createEntity(state: JsonObject, entity: AiEntity, parentId: string | un
   if (entity === "task" && (Number(item.progress ?? 0) > 0 || item.status !== "未开始")) item.progressLogs = [{ id: crypto.randomUUID(), date: chinaDateKey(), progress: Number(item.progress ?? 0), status: item.status, note: "由 AI 创建任务" }];
   if (entity === "milestone" && !isValidLocalDate(String(item.date ?? ""))) throw new Error("日历事项缺少有效日期");
   if (entity === "reminder") validateReminder(item);
-  if (entity === "habit" && item.today === true) {
-    item.streak = 1;
-    item.lastCompletedDate = chinaDateKey();
+  if (entity === "habit") {
+    item = { ...item, ...setHabitCompletedForDate({ streak: 0, today: false }, item.today === true, chinaDateKey()) };
   }
 
   if (["task", "milestone"].includes(entity) && item.courseId) {
@@ -332,17 +332,12 @@ function updateEntity(state: JsonObject, entity: AiEntity, id: string, parentId:
     adjustTaskMinutes(state, oldTaskId, -oldMinutes, current.targetKind);
     adjustTaskMinutes(state, nextTaskId, nextMinutes, next.targetKind);
   }
-  if (entity === "habit" && typeof values.today === "boolean" && values.today !== current.today) {
+  if (entity === "habit") {
     const currentDate = chinaDateKey();
-    const previousDate = chinaDateKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
-    if (values.today) {
-      next.streak = current.lastCompletedDate === previousDate ? Number(current.streak ?? 0) + 1 : 1;
-      next.lastCompletedDate = currentDate;
-    } else {
-      next.streak = Math.max(0, Number(current.streak ?? 0) - 1);
-      if (Number(next.streak) > 0) next.lastCompletedDate = previousDate;
-      else delete next.lastCompletedDate;
-    }
+    const habit = { streak: Number(current.streak ?? 0), today: current.today === true, lastCompletedDate: typeof current.lastCompletedDate === "string" ? current.lastCompletedDate : undefined };
+    const updated = typeof values.today === "boolean" ? setHabitCompletedForDate(habit, values.today, currentDate) : normalizedHabit(habit, currentDate);
+    Object.assign(next, updated);
+    if (!updated.lastCompletedDate) delete next.lastCompletedDate;
   }
   if (entity === "reminder") validateReminder(next);
   state[collection] = items.map((item) => item.id === id ? next : item);

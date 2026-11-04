@@ -7,6 +7,7 @@ import { AppearanceMenu } from "./ThemePicker";
 import { WorkAdvanceButton, WorkAdvanceDialog, WorkProgressBadge } from "./WorkAdvance";
 import { ExamReviewPoolDialog, ExamReviewPoolEntry, ExamReviewToday } from "./ExamReviewPool";
 import { examReviewTodayCounts, isExamReviewCandidate, isExamReviewEvent, setExamReviewExcluded, updateExamReview, type ExamReviewData } from "@/lib/exam-review-pool";
+import { normalizedHabit, toggledHabit } from "@/lib/habit-streak";
 import { CourseEventDialog } from "./CourseEventDialog";
 import { assessmentTypeLabel, assessmentTypeOptions, eventCourseChoices, eventCourseLabel, eventDateLabel, migrateCourseEvents } from "@/lib/course-events";
 import { isFormSaveEnter as isDialogSaveEnter, submitFormOnEnter } from "./form-keyboard";
@@ -150,31 +151,6 @@ const today = dateKey();
 const dateKeyPattern = /^\d{4}-\d{2}-\d{2}$/;
 const reminderTimePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const defaultReminderTimes: Record<Exclude<Reminder["type"], "break">, string> = { exercise: "18:00", sleep: "23:00", custom: "12:00" };
-
-function previousDateKey(currentDate: string) {
-  const [year, month, day] = currentDate.split("-").map(Number);
-  const previous = new Date(year, month - 1, day);
-  previous.setDate(previous.getDate() - 1);
-  return dateKey(previous);
-}
-
-function normalizedHabit(habit: Habit, currentDate = dateKey()): Habit {
-  let lastCompletedDate = typeof habit.lastCompletedDate === "string" && dateKeyPattern.test(habit.lastCompletedDate) ? habit.lastCompletedDate : undefined;
-  if (!lastCompletedDate && habit.today) lastCompletedDate = currentDate;
-  if (lastCompletedDate === currentDate && habit.today === false) lastCompletedDate = undefined;
-  const streak = lastCompletedDate && lastCompletedDate < previousDateKey(currentDate) ? 0 : habit.streak;
-  return { ...habit, streak, today: lastCompletedDate === currentDate, lastCompletedDate };
-}
-
-function toggledHabit(habit: Habit, currentDate = dateKey()): Habit {
-  const current = normalizedHabit(habit, currentDate);
-  if (current.today) {
-    const streak = Math.max(0, current.streak - 1);
-    return { ...current, today: false, streak, lastCompletedDate: streak > 0 ? previousDateKey(currentDate) : undefined };
-  }
-  const streak = current.lastCompletedDate === previousDateKey(currentDate) ? current.streak + 1 : 1;
-  return { ...current, today: true, streak, lastCompletedDate: currentDate };
-}
 
 function normalizedReminder(reminder: Reminder): Reminder {
   const times = [...new Set((Array.isArray(reminder.times) ? reminder.times : []).filter((time) => reminderTimePattern.test(time)))];
@@ -573,21 +549,11 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
     setStoredData((current) => {
       const next = typeof action === "function" ? action(current) : action;
       const currentDate = dateKey();
-      const previousHabits = new Map(current.habits.map((habit) => [habit.id, habit]));
       const completed = withWorkCompletionDates(current, next, currentDate);
       const staged = withPlannedTaskStages({ ...completed, tasks: detachRemovedParents(current, completed) }, currentDate, uid, current);
       return {
         ...staged,
-        habits: staged.habits.map((habit) => {
-          const previous = previousHabits.get(habit.id);
-          if (previous && habit.today !== previous.today && habit.lastCompletedDate === previous.lastCompletedDate) {
-            const nextStreak = habit.today
-              ? previous.lastCompletedDate === previousDateKey(currentDate) ? previous.streak + 1 : 1
-              : habit.streak;
-            return normalizedHabit({ ...habit, streak: nextStreak, lastCompletedDate: habit.today ? currentDate : undefined }, currentDate);
-          }
-          return normalizedHabit(habit, currentDate);
-        }),
+        habits: staged.habits.map((habit) => normalizedHabit(habit, currentDate)),
       };
     });
   }, [preview, readOnly]);
