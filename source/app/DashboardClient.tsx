@@ -5,8 +5,8 @@ import DailyYiyan from "./DailyYiyan";
 import { useBackgroundAccent } from "./BackgroundAppearance";
 import { AppearanceMenu } from "./ThemePicker";
 import { WorkAdvanceButton, WorkAdvanceDialog, WorkProgressBadge } from "./WorkAdvance";
-import { ExamReviewPoolDialog, ExamReviewPoolEntry, ExamReviewToday } from "./ExamReviewPool";
-import { examReviewTodayCounts, isExamReviewCandidate, isExamReviewEvent, setExamReviewExcluded, updateExamReview, type ExamReviewData } from "@/lib/exam-review-pool";
+import { ExamReviewPoolDialog, ExamReviewPoolEntry } from "./ExamReviewPool";
+import { isExamReviewCandidate, isExamReviewEvent, migrateExamReviewTasks, setExamReviewExcluded, updateExamReview } from "@/lib/exam-review-pool";
 import { normalizedHabit, toggledHabit } from "@/lib/habit-streak";
 import { CourseEventDialog } from "./CourseEventDialog";
 import { assessmentTypeLabel, assessmentTypeOptions, eventCourseChoices, eventCourseLabel, eventDateLabel, migrateCourseEvents } from "@/lib/course-events";
@@ -92,7 +92,7 @@ export type Block = {
 type Milestone = CourseNode;
 type ReviewStudyDraft = { node: Milestone; edited?: boolean };
 type TaskProgressLog = { id: string; date: string; progress: number; status: TaskProgressStatus; note: string };
-type TaskItem = { parentId?: string; parentMilestoneId?: string; courseId?: string; requirements?: string; attachments?: NodeAttachment[]; parentCandidate?: boolean; blocks?: Block[]; id: string; title: string; area: Area; source: string; due?: string; dueTime?: string; plannedDate?: string; progressedDates?: string[]; showOnCalendar?: boolean; dismissedTodayDate?: string; completedDate?: string; done: boolean; today: boolean; elapsed: number; mode?: TaskMode; startDate?: string; status?: TaskProgressStatus; progress?: number; progressLogs?: TaskProgressLog[] };
+type TaskItem = { parentId?: string; parentMilestoneId?: string; examEventId?: string; courseId?: string; requirements?: string; attachments?: NodeAttachment[]; parentCandidate?: boolean; blocks?: Block[]; id: string; title: string; area: Area; source: string; due?: string; dueTime?: string; plannedDate?: string; progressedDates?: string[]; showOnCalendar?: boolean; dismissedTodayDate?: string; completedDate?: string; done: boolean; today: boolean; elapsed: number; mode?: TaskMode; startDate?: string; status?: TaskProgressStatus; progress?: number; progressLogs?: TaskProgressLog[] };
 type PageNode = { id: string; space: "thoughts" | "free"; parentId: string | null; title: string; kind: "folder" | "page"; blocks: Block[] };
 type CourseSlot = { id: string; weekday: number; start: string; end: string; location: string; weeks?: string; source?: "manual" | "pku" | "bit" | "ics" };
 type AcademicImportPreset = "pku" | "bit";
@@ -359,7 +359,7 @@ function hydrateState(raw: unknown, initializeReviewPool = false): AppState {
     const status = taskStatusOf(item);
     return {
       ...item, mode, progress, status, done: status === "已完成",
-      courseId: item.courseId ?? courses.find((course) => course.title === item.source)?.id,
+      courseId: item.courseId ?? (item.examEventId ? undefined : courses.find((course) => course.title === item.source)?.id),
       requirements: item.requirements ?? "",
       parentCandidate: item.parentCandidate ?? (mode === "multi" || saved.tasks!.some((child) => child.parentId === item.id)),
       blocks: item.blocks ? cleanStarterBlocks(item.blocks) : undefined,
@@ -405,7 +405,8 @@ function hydrateState(raw: unknown, initializeReviewPool = false): AppState {
     themes: { ...initialState.themes, ...(saved.themes ?? {}) },
   }, dateKey());
   const courseEvents = migrateCourseEvents(normalized);
-  return withPlannedTaskStages<AppState>(initializeReviewPool ? initializeCourseReviewPool(courseEvents) : courseEvents, dateKey(), uid);
+  const withCourseReview = initializeReviewPool ? initializeCourseReviewPool(courseEvents) : courseEvents;
+  return withPlannedTaskStages<AppState>(migrateExamReviewTasks(withCourseReview), dateKey(), uid);
 }
 
 function clientNormalizationChanged(raw: unknown, hydrated: AppState) {
@@ -444,6 +445,7 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
   const [reviewPoolOpen, setReviewPoolOpen] = useState<string | null>(null);
   const [examPoolOpen, setExamPoolOpen] = useState<string | null>(null);
   const [examEventDraft, setExamEventDraft] = useState<string | null>(null);
+  const [examTaskDraft, setExamTaskDraft] = useState<{ eventId: string; taskId?: string } | null>(null);
   const [reviewDate, setReviewDate] = useState(dateKey);
   useEffect(() => {
     const updateDate = () => setReviewDate(dateKey());
@@ -744,18 +746,17 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
     setSync(needsNormalizationSave ? "saving" : "cloud");
   }, [account.id, onLogout, preview]);
 
-  const navigate = (id: NavId) => { setActive(id); setDetail(null); setWorkDetail(null); setMobileNav(false); setReviewPoolOpen(null); setExamPoolOpen(null); setExamEventDraft(null); };
+  const navigate = (id: NavId) => { setActive(id); setDetail(null); setWorkDetail(null); setMobileNav(false); setReviewPoolOpen(null); setExamPoolOpen(null); setExamEventDraft(null); setExamTaskDraft(null); };
   const daily = data.daily[today] ?? { note: "", gain: "", problem: "", feeling: "", tomorrow: "" };
   const displayedData = withoutReviewPoolSources(data);
   const changeReviewItem = (id: string, patch: Partial<Pick<ReviewPoolItem, "course" | "chapter" | "progress" | "note" | "done" | "selectedDate" | "steps">>) => {
     setData((current) => updateReviewPoolItem(current, id, patch, dateKey()));
   };
-  const changeExamReview = (id: string, review: ExamReviewData) => {
+  const changeExamReview = (id: string, review: { note: string }) => {
     if (readOnly) return;
     setData((current) => ({ ...current, milestones: current.milestones.map((node) => node.id === id ? updateExamReview(node, review, dateKey()) : node) }));
   };
-  const examCounts = examReviewTodayCounts(data.milestones, reviewDate);
-  const reviewToday = <><ReviewPoolToday items={data.reviewPool?.items ?? []} today={reviewDate} readOnly={readOnly} onChange={changeReviewItem} onOpenItem={setReviewPoolOpen} /><ExamReviewToday events={data.milestones} courses={data.courses} today={reviewDate} readOnly={readOnly} onChange={changeExamReview} onOpenEvent={setExamPoolOpen} /></>;
+  const reviewToday = <ReviewPoolToday items={data.reviewPool?.items ?? []} today={reviewDate} readOnly={readOnly} onChange={changeReviewItem} onOpenItem={setReviewPoolOpen} />;
   const reviewEntry = <div className="reviewPoolEntries">{data.reviewPool && <ReviewPoolEntry onOpen={() => setReviewPoolOpen("")} />}<ExamReviewPoolEntry onOpen={() => setExamPoolOpen("")} /></div>;
   const todayTasks = displayedData.tasks.filter((task) => taskVisibleToday(task, reviewDate));
   const todayCourseNodes = displayedData.milestones.filter((node) => studyTaskVisibleOnDate(node, reviewDate));
@@ -831,11 +832,25 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
   }, [data.courses, setData]);
 
   const editingExam = examEventDraft && examEventDraft !== "new" ? data.milestones.find((node) => node.id === examEventDraft) : undefined;
+  const examForTask = examTaskDraft ? data.milestones.find((node) => node.id === examTaskDraft.eventId) : undefined;
+  const editingExamTask = examTaskDraft?.taskId ? data.tasks.find((task) => task.id === examTaskDraft.taskId) : undefined;
+  const showExamTaskSettings = !readOnly && Boolean(examTaskDraft?.taskId ? editingExamTask : examForTask);
+  const openExamTask = (taskId: string) => {
+    const task = data.tasks.find((item) => item.id === taskId);
+    if (!task?.examEventId) return;
+    if (readOnly) {
+      setExamPoolOpen(null);
+      setWorkDetail({ kind: "task", id: taskId });
+      return;
+    }
+    setExamPoolOpen(task.examEventId);
+    setExamTaskDraft({ eventId: task.examEventId, taskId });
+  };
   const advancingItem = advancingWork?.kind === "task" ? data.tasks.find((entry) => entry.id === advancingWork.id) : data.milestones.find((entry) => entry.id === advancingWork?.id);
   return <div className={"shell design-" + designMode} style={{ "--accent": interfaceColor } as React.CSSProperties}>
     <aside className={`sidebar ${mobileNav ? "open" : ""}`}><button className="brand" onClick={() => navigate("today")}><span className="brandMark">序</span><span>序流</span></button><DailyYiyan /><div className="navGroup">{navItems.slice(0, 5).map((item) => <NavButton key={item.id} {...item} active={active} onClick={navigate} />)}</div><div className="navCaption">我的空间</div><div className="navGroup">{navItems.slice(5).map((item) => <NavButton key={item.id} {...item} active={active} onClick={navigate} />)}</div><button className="exportButton" onClick={exportData}>导出数据备份</button><button className="refreshButton" disabled={sync === "saving"} onClick={() => void reloadForUpdate()}>{sync === "saving" ? "保存后可刷新" : "↻ 刷新应用"}</button><a className="changelogLink" href="/changelog" target="_blank" rel="noreferrer">更新日志 ↗</a>{!preview && <button className="logoutButton" onClick={onLogout}>退出登录</button>}<div className="sidebarFoot"><span className={`syncDot ${sync}`} />{sync === "saving" ? "正在保存" : sync === "readonly" ? "正在查看只读空间" : sync === "error" ? "云端连接异常" : sync === "preview" ? "本地预览 · 不会写入云端" : "已保存到云端"}</div></aside>
     <main className="main">{preview && <div className="readOnlyBanner">本地预览 · 刷新后重置</div>}<header className="mobileHeader"><button className="iconButton" aria-label="打开导航" onClick={() => setMobileNav(true)}>☰</button><strong>序流</strong><div className="mobileHeaderActions"><button className="iconButton refreshIconButton" disabled={sync === "saving"} aria-label="刷新应用" title="刷新应用" onClick={() => void reloadForUpdate()}>↻</button><span className={`syncDot ${sync}`} /></div></header>{updateAvailable && <div className="updateBanner"><span>网站已有新版本，为避免继续使用旧页面，请先刷新。</span><button disabled={sync === "saving"} onClick={() => void reloadForUpdate()}>{sync === "saving" ? "等待保存" : "立即刷新"}</button></div>}{readOnly && <div className="readOnlyBanner">正在查看 <strong>{visibleAccount.displayName}</strong> 的空间 · 只读</div>}{!loaded ? <div className="workspaceLoading">正在载入空间…</div> : <>{workDetail ? <TaskDetail key={`${workspaceOwner}:${workDetail.kind}:${workDetail.id}`} target={workDetail} data={data} setData={setData} access={{ ownerId: workspaceOwner, readOnly, preview }} onOpen={setWorkDetail} onClose={() => setWorkDetail(null)} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} /> : detail ? <DetailRouter target={detail} data={displayedData} setData={setData} back={() => setDetail(null)} openWork={setWorkDetail} setDialog={setDialog} deleteDialog={deleteDialog} access={{ ownerId: workspaceOwner, readOnly, preview }} /> : <>
-      {active === "today" && <TodayView onOpenExamPool={() => setExamPoolOpen("")} examReviewCounts={examCounts} onOpenReviewPool={data.reviewPool ? () => setReviewPoolOpen("") : undefined} appearanceControls={<AppearanceMenu color={interfaceColor} presets={themePresets} designMode={designMode} onDesignChange={chooseDesignMode} onChange={chooseInterfaceColor} />} reviewToday={reviewToday} data={displayedData} setData={setData} tasks={todayTasks} milestones={todayCourseNodes} daily={daily} updateDaily={updateDaily} focusPanel={focusPanel} resetStudyPlan={resetStudyPlan} openWork={setWorkDetail} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} access={{ ownerId: workspaceOwner, readOnly, preview }} readOnly={readOnly} setPopup={setPopup} setDialog={setDialog} />}
+      {active === "today" && <TodayView onOpenExamPool={() => setExamPoolOpen("")} onOpenReviewPool={data.reviewPool ? () => setReviewPoolOpen("") : undefined} appearanceControls={<AppearanceMenu color={interfaceColor} presets={themePresets} designMode={designMode} onDesignChange={chooseDesignMode} onChange={chooseInterfaceColor} />} reviewToday={reviewToday} data={displayedData} setData={setData} tasks={todayTasks} milestones={todayCourseNodes} daily={daily} updateDaily={updateDaily} focusPanel={focusPanel} resetStudyPlan={resetStudyPlan} openWork={setWorkDetail} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} access={{ ownerId: workspaceOwner, readOnly, preview }} readOnly={readOnly} setPopup={setPopup} setDialog={setDialog} />}
       {active === "timetable" && <TimetableViewV2 data={data} setData={setData} setDialog={setDialog} openCourse={(id) => setDetail({ type: "course", id })} deleteDialog={deleteDialog} dualSchool={workspaceOwner === "owner"} readOnly={readOnly} />}
       {active === "tasks" && <TaskOverviewView reviewPoolEntry={reviewEntry} data={displayedData} setData={setData} setDialog={setDialog} openWork={setWorkDetail} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} access={{ ownerId: workspaceOwner, readOnly, preview }} readOnly={readOnly} />}
       {active === "calendar" && <CalendarView data={displayedData} setData={setData} setDialog={setDialog} openWork={setWorkDetail} readOnly={readOnly} />}
@@ -855,11 +870,50 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
       setAdvancingWork(null);
     }} />}
     {reviewPoolOpen !== null && data.reviewPool && <CourseReviewPoolDialog key={reviewPoolOpen} items={data.reviewPool.items} courseNames={eventCourseChoices(data.courses).map((course) => course.title)} today={reviewDate} readOnly={readOnly} initialItemId={reviewPoolOpen} onClose={() => setReviewPoolOpen(null)} onChange={changeReviewItem} onDelete={(id) => { if (!readOnly) setData((current) => deleteReviewPoolItem(current, id)); }} onRestore={(item, index) => { if (!readOnly) setData((current) => restoreReviewPoolItem(current, item, index)); }} onCreate={(item) => { if (!readOnly) setData((current) => !current.reviewPool || current.reviewPool.items.length >= 500 || current.reviewPool.items.some((existing) => existing.id === item.id) ? current : { ...current, reviewPool: { ...current.reviewPool, items: [...current.reviewPool.items, item] } }); }} renderSources={(item) => <ReviewPoolSourceDetails item={item} data={data} access={{ ownerId: workspaceOwner, readOnly, preview }} />} />}
-    {examPoolOpen !== null && <ExamReviewPoolDialog key={workspaceOwner + examPoolOpen} events={data.milestones} courses={data.courses} today={reviewDate} readOnly={readOnly} initialEventId={examPoolOpen} onClose={() => setExamPoolOpen(null)} onChange={changeExamReview} onCreateExam={() => setExamEventDraft("new")} onEditExam={setExamEventDraft} onToggleExam={(id) => {
+    {examPoolOpen !== null && !showExamTaskSettings && !dialog && <ExamReviewPoolDialog
+      key={workspaceOwner + examPoolOpen} events={data.milestones} tasks={data.tasks} courses={data.courses} today={reviewDate} readOnly={readOnly}
+      initialEventId={examPoolOpen} onClose={() => setExamPoolOpen(null)} onChange={changeExamReview}
+      onCreateTask={(eventId) => {
+        if (readOnly) return;
+        if (data.tasks.length >= 10_000) {
+          setExamPoolOpen(null);
+          setPopup({ eyebrow: "考试复习池", title: "任务已达到上限", body: "请整理现有任务后再添加。" });
+          return;
+        }
+        setExamPoolOpen(eventId);
+        setExamTaskDraft({ eventId });
+      }}
+      onEditTask={openExamTask}
+      onToggleTask={(id) => setData((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id ? withTaskCompletion(task, !task.done, dateKey()) : task) }))}
+      onPlanToday={(id) => setData((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id && !task.done ? planTaskForDate(task, dateKey()) : task) }))}
+      onCancelToday={(id) => cancelToday({ kind: "task", id })}
+      onDeleteTask={(id) => {
+        const task = data.tasks.find((item) => item.id === id);
+        if (readOnly || !task?.examEventId) return;
+        setExamPoolOpen(task.examEventId);
+        requestWorkDeletion({ kind: "task", id }, task.title);
+      }}
+      onCreateExam={() => setExamEventDraft("new")} onEditExam={setExamEventDraft} onToggleExam={(id) => {
       if (!readOnly) setData((current) => ({ ...current, milestones: current.milestones.map((node) => node.id === id && isExamReviewEvent(node) ? { ...node, done: !node.done } : node) }));
     }} onExcludeExam={(id, excluded) => {
       if (!readOnly) setData((current) => ({ ...current, milestones: current.milestones.map((node) => node.id === id && isExamReviewCandidate(node) ? setExamReviewExcluded(node, excluded) : node) }));
     }} />}
+    {showExamTaskSettings && <TaskSettingsDialog
+      key={editingExamTask?.id ?? examForTask?.id} task={editingExamTask} presetExam={examForTask}
+      access={{ ownerId: workspaceOwner, readOnly, preview }} tasks={data.tasks} milestones={data.milestones} courses={data.courses} learning={data.learning}
+      onClose={() => setExamTaskDraft(null)}
+      onSave={(task) => {
+        setData((current) => editingExamTask
+          ? { ...current, tasks: current.tasks.map((item) => item.id === task.id ? preserveTaskContent(item, task) : item) }
+          : { ...current, tasks: [...current.tasks, task] });
+        setExamTaskDraft(null);
+      }}
+      onOpenDetail={editingExamTask ? () => {
+        setExamTaskDraft(null);
+        setExamPoolOpen(null);
+        setWorkDetail({ kind: "task", id: editingExamTask.id });
+      } : undefined}
+    />}
     {(examEventDraft === "new" || editingExam) && <CourseEventDialog key={examEventDraft} node={editingExam} defaultAssessmentType="exam" courses={data.courses} readOnly={readOnly} onClose={() => setExamEventDraft(null)} onSave={(node) => {
       if (readOnly) return;
       setData((current) => ({ ...current, milestones: current.milestones.some((item) => item.id === node.id) ? current.milestones.map((item) => item.id === node.id ? { ...node, ...(item.examReview ? { examReview: item.examReview } : {}) } : item) : [...current.milestones, node] }));
@@ -938,7 +992,7 @@ function AutomaticStudyActions({ title, done, readOnly, plannedToday, onEdit, on
   </>;
 }
 
-function TodayView({ onOpenReviewPool, onOpenExamPool, examReviewCounts, appearanceControls, reviewToday, data, setData, tasks, milestones, daily, updateDaily, focusPanel, resetStudyPlan, openWork, requestDelete, postponeWork, advanceWork, cancelToday, access, readOnly, setPopup, setDialog }: { onOpenReviewPool?: () => void; onOpenExamPool: () => void; examReviewCounts: { total: number; completed: number }; appearanceControls: React.ReactNode; reviewToday: React.ReactNode; data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; tasks: TaskItem[]; milestones: Milestone[]; daily: AppState["daily"][string]; updateDaily: (field: keyof AppState["daily"][string], value: string) => void; focusPanel: React.ReactNode; resetStudyPlan: () => void; openWork: (target: WorkTarget) => void; requestDelete: (target: WorkTarget, title: string) => void; postponeWork: (target: WorkTarget, days?: number) => void; advanceWork: (target: WorkTarget) => void; cancelToday: (target: WorkTarget) => void; access: EditorAccess; readOnly: boolean; setPopup: (value: PopupState) => void; setDialog: (value: DialogConfig) => void }) {
+function TodayView({ onOpenReviewPool, onOpenExamPool, appearanceControls, reviewToday, data, setData, tasks, milestones, daily, updateDaily, focusPanel, resetStudyPlan, openWork, requestDelete, postponeWork, advanceWork, cancelToday, access, readOnly, setPopup, setDialog }: { onOpenReviewPool?: () => void; onOpenExamPool: () => void; appearanceControls: React.ReactNode; reviewToday: React.ReactNode; data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; tasks: TaskItem[]; milestones: Milestone[]; daily: AppState["daily"][string]; updateDaily: (field: keyof AppState["daily"][string], value: string) => void; focusPanel: React.ReactNode; resetStudyPlan: () => void; openWork: (target: WorkTarget) => void; requestDelete: (target: WorkTarget, title: string) => void; postponeWork: (target: WorkTarget, days?: number) => void; advanceWork: (target: WorkTarget) => void; cancelToday: (target: WorkTarget) => void; access: EditorAccess; readOnly: boolean; setPopup: (value: PopupState) => void; setDialog: (value: DialogConfig) => void }) {
   const today = dateKey();
   const [deferringNode, setDeferringNode] = useState<ReviewStudyDraft | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
@@ -955,7 +1009,7 @@ function TodayView({ onOpenReviewPool, onOpenExamPool, examReviewCounts, appeara
     ...courseTasks.filter((node) => taskModeOf(node) !== "multi").map((item) => ({ kind: "milestone" as const, item })),
   ];
   const importantCourseIds = new Set(data.courses.filter((course) => isPriorityStudyCourse(course.title)).map((course) => course.id));
-  const courseAssignments = shortEntries.filter((entry) => entry.kind === "task" ? Boolean(entry.item.courseId) : Boolean((entry.item.courseId || entry.item.linkedCourseId) && !entry.item.automationKey)).sort((left, right) => {
+  const courseAssignments = shortEntries.filter((entry) => entry.kind === "task" ? Boolean(entry.item.courseId && !entry.item.examEventId) : Boolean((entry.item.courseId || entry.item.linkedCourseId) && !entry.item.automationKey)).sort((left, right) => {
     const deadline = (entry: TodayTaskEntry) => entry.kind === "task" ? entry.item.due || "9999-12-31" : entry.item.date;
     const urgent = (entry: TodayTaskEntry) => deadline(entry) <= addDays(today, 2);
     return Number(left.item.done) - Number(right.item.done)
@@ -991,9 +1045,7 @@ function TodayView({ onOpenReviewPool, onOpenExamPool, examReviewCounts, appeara
     },
   ];
   const allTaskEntries = taskGroups.flatMap((group) => group.entries);
-  const courseReviewCounts = reviewPoolTodayCounts(data.reviewPool?.items ?? [], dateKey());
-  const selectedReviewCount = courseReviewCounts.total + examReviewCounts.total;
-  const completedReviews = courseReviewCounts.completed + examReviewCounts.completed;
+  const { total: selectedReviewCount, completed: completedReviews } = reviewPoolTodayCounts(data.reviewPool?.items ?? [], today);
   const automaticTasks = milestones.filter((node) => Boolean(node.automationKey));
   const toggleStudyPlan = () => setData((current) => {
     const enabled = !current.studyAutomation.enabled;
@@ -1404,24 +1456,28 @@ function TaskOverviewView({ reviewPoolEntry, data, setData, setDialog, openWork,
   </div>;
 }
 
-function TaskSettingsDialog({ task, tasks, milestones, courses, learning, presetParent, access, onClose, onSave, onOpenDetail }: { task?: TaskItem; tasks: TaskItem[]; milestones: Milestone[]; courses: Course[]; learning: LearningArea[]; presetParent?: WorkTarget; access: EditorAccess; onClose: () => void; onSave: (task: TaskItem) => void; onOpenDetail?: () => void }) {
+function TaskSettingsDialog({ task, tasks, milestones, courses, learning, presetParent, presetExam, access, onClose, onSave, onOpenDetail }: { task?: TaskItem; tasks: TaskItem[]; milestones: Milestone[]; courses: Course[]; learning: LearningArea[]; presetParent?: WorkTarget; presetExam?: Milestone; access: EditorAccess; onClose: () => void; onSave: (task: TaskItem) => void; onOpenDetail?: () => void }) {
   const presetTask = presetParent?.kind === "task" ? tasks.find((item) => item.id === presetParent.id) : undefined;
   const presetNode = presetParent?.kind === "milestone" ? milestones.find((item) => item.id === presetParent.id) : undefined;
   const parentItem = presetTask ?? presetNode;
   const classroomSubjects = Array.from(new Map(courses.filter((course) => isCourseTitleCandidate(course.title)).map((course) => [course.title.trim(), course])).values()).map((course) => ({ id: course.id, title: course.title.trim(), area: "课内" as const }));
   const extracurricularSubjects = Array.from(new Map(learning.filter((item) => item.title.trim()).map((item) => [item.title.trim(), item])).values()).map((subject) => ({ id: subject.id, title: subject.title.trim(), area: "课外" as const }));
   const subjectOptions = [...classroomSubjects, ...extracurricularSubjects];
+  const examSubject = classroomSubjects.find((subject) => subject.id === presetExam?.linkedCourseId);
+  const linkedExam = presetExam ?? (task?.examEventId ? milestones.find((item) => item.id === task.examEventId) : undefined);
   const initialMode = taskModeOf(task ?? {});
+  const initiallyLearning = task ? Boolean(task.courseId) : !presetExam || Boolean(examSubject);
+  const presetCourseId = presetExam ? examSubject?.id : presetNode?.courseId ?? subjectOptions[0]?.id;
   const [mode, setMode] = useState<TaskMode>(initialMode);
-  const [origin, setOrigin] = useState<"course" | "other">(task ? task.courseId ? "course" : "other" : "course");
-  const [courseId, setCourseId] = useState(task?.courseId ?? presetNode?.courseId ?? subjectOptions[0]?.id ?? "");
+  const [origin, setOrigin] = useState<"course" | "other">(initiallyLearning ? "course" : "other");
+  const [courseId, setCourseId] = useState(task?.courseId ?? presetCourseId ?? "");
   const [title, setTitle] = useState(task?.title ?? "");
   const [requirements, setRequirements] = useState(task?.requirements ?? "");
   const [attachments, setAttachments] = useState<NodeAttachment[]>(task?.attachments ?? []);
   const [attachmentsPending, setAttachmentsPending] = useState(false);
   const taskId = useRef(task?.id ?? uid());
-  const [area, setArea] = useState<Area>(task?.area ?? parentItem?.area ?? subjectOptions[0]?.area ?? "课内");
-  const [source, setSource] = useState(task?.source ?? parentItem?.title ?? subjectOptions[0]?.title ?? "");
+  const [area, setArea] = useState<Area>(task?.area ?? presetExam?.area ?? parentItem?.area ?? subjectOptions[0]?.area ?? "课内");
+  const [source, setSource] = useState(task?.source ?? presetExam?.title ?? parentItem?.title ?? subjectOptions[0]?.title ?? "");
   const [parent, setParent] = useState(task?.parentId ? "task:" + task.parentId : task?.parentMilestoneId ? "milestone:" + task.parentMilestoneId : presetParent ? presetParent.kind + ":" + presetParent.id : "");
   const [parentCandidate, setParentCandidate] = useState(task?.parentCandidate ?? initialMode === "multi");
   const excludedParents = new Set(task ? [task.id, ...descendantTasks(tasks, { kind: "task", id: task.id }).map((item) => item.id)] : []);
@@ -1484,6 +1540,7 @@ function TaskSettingsDialog({ task, tasks, milestones, courses, learning, preset
     if (changed) progressLogs.push({ id: uid(), date: today, progress: nextProgress, status: nextStatus, note: "在任务设置中更新" });
     const nextTask: TaskItem = {
       ...task,
+      examEventId: task?.examEventId ?? presetExam?.id,
       parentId: parent.startsWith("task:") ? parent.slice(5) : undefined,
       parentMilestoneId: parent.startsWith("milestone:") ? parent.slice(10) : undefined,
       courseId: origin === "course" ? courseId || undefined : undefined,
@@ -1516,7 +1573,7 @@ function TaskSettingsDialog({ task, tasks, milestones, courses, learning, preset
   };
   const history = [...(task?.progressLogs ?? [])].reverse().slice(0, 5);
   return <div className="dialogScrim" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && !attachmentsPending) onClose(); }}><form className="appDialog taskSettingsDialog" role="dialog" aria-modal="true" aria-label={task ? "修改任务" : "新增任务"} onSubmit={submit} onKeyDown={(event) => { if (isDialogSaveEnter(event)) { event.preventDefault(); openDetailAfterSave.current = false; event.currentTarget.requestSubmit(saveButtonRef.current ?? undefined); } }}>
-    <div className="dialogHead"><div><span>任务设置</span><h2>{task ? "修改任务" : "新增任务"}</h2></div><button type="button" aria-label="关闭" disabled={attachmentsPending} onClick={onClose}>×</button></div>
+    <div className="dialogHead"><div><span>任务设置</span><h2>{task ? "修改任务" : "新增任务"}</h2>{linkedExam && <p>关联考试 · {linkedExam.title}</p>}</div><button type="button" aria-label="关闭" disabled={attachmentsPending} onClick={onClose}>×</button></div>
     <div className="taskPrimaryFields">
       <label className="taskTitleField"><span>任务名称</span><input autoFocus required maxLength={500} value={title} placeholder="要完成什么？" onChange={(event) => setTitle(event.target.value)} /></label>
       <div className={"taskClassificationFields" + (origin === "other" ? " otherTask" : "")}>

@@ -10,6 +10,46 @@ export type ExamReviewEvent = {
   examReview?: ExamReviewData;
 };
 
+export type ExamReviewTask = {
+  id: string; title: string; done: boolean; area: ExamReviewEvent["area"];
+  source: string; today: boolean; elapsed: number;
+  examEventId?: string; courseId?: string; mode?: "single" | "multi";
+  plannedDate?: string; completedDate?: string; showOnCalendar?: boolean;
+};
+
+/** Move legacy steps once; an ordinary task is then the only editable record. */
+export function migrateExamReviewTasks<S extends { tasks: ExamReviewTask[]; milestones: ExamReviewEvent[] }>(state: S): S {
+  if (state.tasks.length >= 10_000 || !state.milestones.some((event) => event.examReview?.steps.length)) return state;
+  const usedIds = new Set([...state.tasks, ...state.milestones].map((item) => item.id));
+  // A collision suffix must not take the original ID of a later legacy step.
+  const reservedStepIds = new Set(state.milestones.flatMap((event) => event.examReview?.steps.map((step) => step.id) ?? []));
+  const tasks = [...state.tasks];
+  const milestones = state.milestones.map((event) => {
+    const review = event.examReview;
+    if (!review?.steps.length || tasks.length >= 10_000) return event;
+    const remaining: ReviewPoolStep[] = [];
+    for (const step of review.steps) {
+      if (tasks.length >= 10_000 || !validSteps([step])) { remaining.push(step); continue; }
+      let taskId = step.id;
+      for (let index = 1; usedIds.has(taskId) || taskId !== step.id && reservedStepIds.has(taskId); index += 1) {
+        const suffix = `-exam-review-${index}`;
+        taskId = `${step.id.slice(0, 120 - suffix.length)}${suffix}`;
+      }
+      usedIds.add(taskId);
+      const courseId = event.linkedCourseId ?? event.courseId;
+      tasks.push({
+        id: taskId, title: step.title, done: step.done, area: event.area, source: event.title,
+        examEventId: event.id, ...(courseId ? { courseId } : {}),
+        mode: "single", today: false, elapsed: 0, showOnCalendar: false,
+        ...(step.selectedDate !== undefined ? { plannedDate: step.selectedDate } : {}),
+        ...(step.completedDate !== undefined ? { completedDate: step.completedDate } : {}),
+      });
+    }
+    return remaining.length === review.steps.length ? event : { ...event, examReview: { ...review, steps: remaining } };
+  });
+  return tasks.length === state.tasks.length ? state : { ...state, tasks, milestones };
+}
+
 export function isExamReviewCandidate(event: Pick<ExamReviewEvent, "courseId" | "assessmentType">) {
   return !event.courseId && (event.assessmentType === "exam" || event.assessmentType === "quiz");
 }

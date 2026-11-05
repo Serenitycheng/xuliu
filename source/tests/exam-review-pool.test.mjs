@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { examReviewSummary, examReviewTodayCounts, isExamReviewCandidate, isExamReviewEvent, setExamReviewExcluded, updateExamReview } from '../lib/exam-review-pool.ts';
+import { examReviewSummary, examReviewTodayCounts, isExamReviewCandidate, isExamReviewEvent, migrateExamReviewTasks, setExamReviewExcluded, updateExamReview } from '../lib/exam-review-pool.ts';
 import { createReviewPoolStep, editReviewPoolStep, reviewPoolReadProjection, withoutReviewPoolSources } from '../lib/course-review-pool.ts';
 import { aiCourseContextFromWorkspace } from '../lib/ai-course-context.ts';
 import { createEmptyWorkspaceState, workspaceStateSchema } from '../lib/workspace-state-schema.ts';
 import { manualCalendarItems } from '../lib/calendar-items.ts';
 import { upcomingDeadlines } from '../lib/upcoming-deadlines.ts';
+import { taskVisibleToday } from '../lib/task-progress.ts';
 
 const today = '2026-11-03';
 const tomorrow = '2026-11-04';
@@ -211,4 +212,128 @@ test('排除状态通过严格保存导出合同并保留AI原事项读取，非
   assert.equal(isExamReviewEvent(setExamReviewExcluded(saved.milestones[0], false)), true);
   for (const excluded of ['true', 1, null]) assert.equal(workspaceStateSchema.safeParse(stateWith(event({ examReview: { note: '', steps: [], excluded } }))).success, false);
   assert.equal(workspaceStateSchema.safeParse(stateWith(event({ examReview: { note: '', steps: [], excluded: false } }))).success, true);
+});
+
+const ordinaryTask = (id, patch = {}) => ({ id, title: '原普通任务', area: '生活', source: '手动', done: false, today: false, elapsed: 0, ...patch });
+
+test('旧复习任务无损转为普通任务，保留考试与课程关联且不修改原事项资料', () => {
+  const originalTask = ordinaryTask('original', { requirements: '原任务内容', parentMilestoneId: 'exam-1' });
+  const node = event({ linkedCourseId: 'course-1', attachments: [], blocks: [{ id: 'note', type: 'text', text: '原笔记' }], examReview: { note: '总复习备注', excluded: false, steps: [
+    { id: 'step-1', title: '第一章复习', done: false, selectedDate: today },
+    { id: 'step-2', title: '第二章已完成', done: true, selectedDate: '2026-10-30', completedDate: '2026-10-31' },
+  ] } });
+  const state = { ...stateWith(node), tasks: [originalTask] };
+  const before = JSON.stringify(state);
+  const migrated = migrateExamReviewTasks(state);
+  assert.deepEqual(migrated.tasks.slice(1), [
+    { id: 'step-1', title: '第一章复习', done: false, area: '课内', source: node.title, examEventId: node.id, courseId: 'course-1', mode: 'single', today: false, elapsed: 0, showOnCalendar: false, plannedDate: today },
+    { id: 'step-2', title: '第二章已完成', done: true, area: '课内', source: node.title, examEventId: node.id, courseId: 'course-1', mode: 'single', today: false, elapsed: 0, showOnCalendar: false, plannedDate: '2026-10-30', completedDate: '2026-10-31' },
+  ]);
+  assert.equal(migrated.tasks[0], originalTask);
+  assert.deepEqual(migrated.milestones[0], { ...node, examReview: { ...node.examReview, steps: [] } });
+  assert.equal(migrated.milestones[0].blocks, node.blocks);
+  assert.equal(migrated.milestones[0].attachments, node.attachments);
+  assert.equal(migrated.finance, state.finance);
+  assert.equal(migrated.tasks[1].parentMilestoneId, undefined);
+  assert.equal(migrated.tasks[1].due, undefined);
+  assert.equal(JSON.stringify(state), before);
+  assert.equal(migrateExamReviewTasks(migrated), migrated);
+});
+
+test('已移出、已结束和改过类型的考试复习历史均可迁移，完成任务不完成考试', () => {
+  const nodes = [
+    event({ id: 'excluded', examReview: { note: '移出保留', excluded: true, steps: [{ id: 'one', title: '复习一', done: false }] } }),
+    event({ id: 'ended', done: true, examReview: { note: '结束保留', steps: [{ id: 'two', title: '复习二', done: false }] } }),
+    event({ id: 'changed', assessmentType: 'submission', area: '课外', examReview: { note: '改类型保留', steps: [{ id: 'three', title: '复习三', done: true }] } }),
+    event({ id: 'unrelated' }),
+  ];
+  const state = { ...createEmptyWorkspaceState(), milestones: nodes };
+  const migrated = migrateExamReviewTasks(state);
+  assert.deepEqual(migrated.tasks.map(({ examEventId, done, area }) => ({ examEventId, done, area })), [
+    { examEventId: 'excluded', done: false, area: '课内' },
+    { examEventId: 'ended', done: false, area: '课内' },
+    { examEventId: 'changed', done: true, area: '课外' },
+  ]);
+  assert.equal(migrated.milestones[0].examReview.excluded, true);
+  assert.deepEqual(migrated.milestones.map((item) => item.done), nodes.map((item) => item.done));
+  assert.equal(migrated.milestones[2].assessmentType, 'submission');
+  assert.equal(migrated.milestones[3], nodes[3]);
+});
+
+test('迁移编号冲突时稳定改名，不抢占后续原编号或覆盖已有任务，长度不超过120', () => {
+  const longId = 'x'.repeat(120);
+  const state = { ...createEmptyWorkspaceState(), tasks: [ordinaryTask('same'), ordinaryTask(longId)], milestones: [
+    event({ id: 'one', examReview: { note: '', steps: [{ id: 'same', title: '第一项', done: false }, { id: longId, title: '长编号', done: false }] } }),
+    event({ id: 'two', examReview: { note: '', steps: [{ id: 'same-exam-review-1', title: '保留原编号', done: false }, { id: 'same', title: '跨考试同编号', done: false }] } }),
+  ] };
+  const migrated = migrateExamReviewTasks(state);
+  const ids = migrated.tasks.map((task) => task.id);
+  assert.equal(ids[2], 'same-exam-review-2');
+  assert.equal(ids[4], 'same-exam-review-1');
+  assert.equal(ids[5], 'same-exam-review-3');
+  assert.equal(new Set(ids).size, ids.length);
+  assert.ok(ids.every((id) => id.length <= 120));
+  assert.deepEqual(migrateExamReviewTasks(state), migrated);
+  assert.equal(migrated.tasks[0], state.tasks[0]);
+  assert.equal(migrated.tasks[1], state.tasks[1]);
+});
+
+test('迁移保留旧计划及完成日期，不推算截止、补造完成日或自动安排今天', () => {
+  const state = stateWith(event({ examReview: { note: '', steps: [
+    { id: 'none', title: '未安排', done: false },
+    { id: 'future', title: '未来安排', done: false, selectedDate: tomorrow },
+    { id: 'past', title: '历史安排', done: false, selectedDate: '2026-10-30' },
+    { id: 'unknown', title: '旧已完成', done: true },
+    { id: 'completed', title: '当天已完成', done: true, completedDate: today },
+  ] } }));
+  const migrated = migrateExamReviewTasks(state);
+  assert.deepEqual(migrated.tasks.map((task) => task.plannedDate), [undefined, tomorrow, '2026-10-30', undefined, undefined]);
+  assert.deepEqual(migrated.tasks.map((task) => task.completedDate), [undefined, undefined, undefined, undefined, today]);
+  assert.deepEqual(migrated.tasks.map((task) => taskVisibleToday(task, today)), [false, false, false, false, true]);
+  assert.ok(migrated.tasks.every((task) => task.due === undefined && task.today === false && task.showOnCalendar === false));
+  assert.equal(migrated.milestones[0].done, false);
+});
+
+test('任务满额时保留未迁移条目，释放容量后仅迁移剩余内容', () => {
+  const steps = [{ id: 'first', title: '第一项', done: false }, { id: 'second', title: '第二项', done: true, completedDate: today }];
+  const state = { ...stateWith(event({ examReview: { note: '保留', excluded: true, steps } })), tasks: Array.from({ length: 9_999 }, (_, index) => ordinaryTask(`original-${index}`)) };
+  const migrated = migrateExamReviewTasks(state);
+  assert.equal(migrated.tasks.length, 10_000);
+  assert.equal(migrated.tasks.at(-1).id, 'first');
+  assert.deepEqual(migrated.milestones[0].examReview, { note: '保留', excluded: true, steps: [steps[1]] });
+  assert.equal(migrateExamReviewTasks(migrated), migrated);
+  const released = { ...migrated, tasks: migrated.tasks.filter((task) => task.id !== 'first') };
+  const completed = migrateExamReviewTasks(released);
+  assert.equal(completed.tasks.length, 10_000);
+  assert.equal(completed.tasks.at(-1).id, 'second');
+  assert.equal(completed.tasks.some((task) => task.id === 'first'), false);
+  assert.deepEqual(completed.milestones[0].examReview, { note: '保留', excluded: true, steps: [] });
+  assert.deepEqual(state.milestones[0].examReview.steps, steps);
+});
+
+test('已迁任务编辑和删除后不会被旧清单重建，无旧步骤的状态保持原引用', () => {
+  const old = stateWith(event());
+  assert.equal(migrateExamReviewTasks(old), old);
+  const migrated = migrateExamReviewTasks(stateWith(event({ examReview: { note: '', steps: [{ id: 'one', title: '原名称', done: false }] } })));
+  const edited = { ...migrated, tasks: migrated.tasks.map((task) => ({ ...task, title: '已编辑', plannedDate: tomorrow, done: true, completedDate: today })) };
+  assert.equal(migrateExamReviewTasks(edited), edited);
+  const removed = { ...edited, tasks: [] };
+  assert.equal(migrateExamReviewTasks(removed), removed);
+});
+
+test('普通考试复习任务通过保存导出及AI投影，孤立考试引用保留，非法关联被拒绝', () => {
+  const original = stateWith(event({ linkedCourseId: 'course', examReview: { note: '保留备注', steps: [{ id: 'one', title: '做题', done: true }] } }));
+  const migrated = migrateExamReviewTasks(original);
+  const saved = workspaceStateSchema.parse(JSON.parse(JSON.stringify(migrated)));
+  assert.deepEqual(saved, migrated);
+  assert.deepEqual(reviewPoolReadProjection(saved).tasks, migrated.tasks);
+  assert.deepEqual(reviewPoolReadProjection(saved).milestones, migrated.milestones);
+  assert.deepEqual(manualCalendarItems(saved).map((entry) => entry.item.id), manualCalendarItems(original).map((entry) => entry.item.id));
+  assert.deepEqual(upcomingDeadlines(saved.tasks, saved.milestones, today), upcomingDeadlines(original.tasks, original.milestones, today));
+  const orphaned = { ...saved, milestones: [] };
+  assert.equal(workspaceStateSchema.parse(orphaned).tasks[0].examEventId, 'exam-1');
+  assert.equal(workspaceStateSchema.parse(orphaned).tasks[0].completedDate, undefined);
+  for (const examEventId of ['', 'x'.repeat(121), 123, null]) {
+    assert.equal(workspaceStateSchema.safeParse({ ...saved, tasks: [{ ...saved.tasks[0], examEventId }] }).success, false);
+  }
 });

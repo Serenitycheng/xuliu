@@ -1,82 +1,76 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { createReviewPoolStep, editReviewPoolStep, reviewPoolStepVisibleOnDate, type ReviewPoolStep } from "@/lib/course-review-pool";
 import { examReviewSummary, isExamReviewCandidate, isExamReviewEvent, type ExamReviewData, type ExamReviewEvent } from "@/lib/exam-review-pool";
-import { submitFormOnEnter } from "./form-keyboard";
+import { defaultTaskPlannedDate, taskDeadlineLabel, taskModeOf, taskProgressOf, taskStatusOf, taskVisibleToday, type TaskScheduleLike } from "@/lib/task-progress";
 import "./course-review-pool.css";
 import "./exam-review-pool.css";
 
-type ExamReviewProps = {
+export type ExamReviewTask = TaskScheduleLike & { id: string; title: string; done: boolean; examEventId?: string };
+
+type ExamReviewTaskActions = {
+  onCreateTask: (eventId: string) => void;
+  onEditTask: (taskId: string) => void;
+  onToggleTask: (taskId: string) => void;
+  onPlanToday: (taskId: string) => void;
+  onCancelToday: (taskId: string) => void;
+  onDeleteTask: (taskId: string) => void;
+};
+
+type ExamReviewProps = ExamReviewTaskActions & {
   events: ExamReviewEvent[];
+  tasks: ExamReviewTask[];
   courses: { id: string; title: string }[];
   today: string;
   readOnly: boolean;
-  onChange: (eventId: string, review: ExamReviewData) => void;
+  onChange: (eventId: string, review: { note: string }) => void;
 };
 
 const reviewOf = (event: ExamReviewEvent): ExamReviewData => event.examReview ?? { note: "", steps: [] };
 const courseOf = (event: ExamReviewEvent, courses: ExamReviewProps["courses"]) => event.linkedCourseId ? courses.find((course) => course.id === event.linkedCourseId)?.title ?? "课程已移除" : "";
 const dateOf = (event: ExamReviewEvent) => event.date ? `${event.date}${event.time ? ` ${event.time}` : ""}` : "日期待定";
 
-function ExamTodaySummary({ event, today }: { event: ExamReviewEvent; today: string }) {
-  const { todayTotal, todayCompleted } = examReviewSummary(event, today);
+function poolSummary(event: ExamReviewEvent, tasks: ExamReviewTask[], today: string) {
+  const legacy = examReviewSummary(event, today);
+  const todayTasks = tasks.filter((task) => taskVisibleToday(task, today));
+  return {
+    total: tasks.length + legacy.total,
+    completed: tasks.filter((task) => taskStatusOf(task) === "已完成").length + legacy.completed,
+    todayTotal: todayTasks.length + legacy.todayTotal,
+    todayCompleted: todayTasks.filter((task) => taskStatusOf(task) === "已完成").length + legacy.todayCompleted,
+  };
+}
+
+function ExamTodaySummary({ summary: { todayTotal, todayCompleted } }: { summary: ReturnType<typeof poolSummary> }) {
   if (!todayTotal) return null;
   return <span className="reviewPoolStepSummary">{todayCompleted ? todayCompleted === todayTotal ? `今日完成 ${todayCompleted} 项` : `今日完成 ${todayCompleted}/${todayTotal} 项` : `今日复习 ${todayTotal} 项`}</span>;
 }
 
-function ExamStepCheck({ event, step, readOnly, onChange }: Pick<ExamReviewProps, "readOnly" | "onChange"> & { event: ExamReviewEvent; step: ReviewPoolStep }) {
-  const review = reviewOf(event);
-  return <button type="button" role="checkbox" className="checkButton reviewPoolCheck" aria-checked={step.done}
-    aria-label={`${step.done ? "重新打开复习任务" : "完成复习任务"}：${event.title} · ${step.title}`} disabled={readOnly}
-    onClick={() => onChange(event.id, { ...review, steps: review.steps.map((current) => current.id === step.id ? { ...current, done: !current.done, completedDate: undefined } : current) })}>{step.done ? "✓" : ""}</button>;
-}
-
-function ExamReviewSteps({ event, today, readOnly, onChange }: Pick<ExamReviewProps, "today" | "readOnly" | "onChange"> & { event: ExamReviewEvent }) {
-  const review = reviewOf(event);
-  const steps = review.steps;
-  const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
-  const [error, setError] = useState("");
-  const [removed, setRemoved] = useState<{ step: ReviewPoolStep; index: number } | null>(null);
-  const undoRef = useRef<HTMLButtonElement>(null);
-  const editRef = useRef<HTMLButtonElement>(null);
-  const [focusStep, setFocusStep] = useState<string | null>(null);
-  useEffect(() => { if (removed) undoRef.current?.focus(); }, [removed]);
-  useEffect(() => { if (focusStep) { editRef.current?.focus(); setFocusStep(null); } }, [focusStep]);
-  const saveSteps = (next: ReviewPoolStep[]) => onChange(event.id, { ...review, steps: next });
+function ExamReviewTasks({ event, tasks, today, readOnly, onCreateTask, onEditTask, onToggleTask, onPlanToday, onCancelToday, onDeleteTask }: Pick<ExamReviewProps, "tasks" | "today" | "readOnly"> & ExamReviewTaskActions & { event: ExamReviewEvent }) {
+  const legacySteps = event.examReview?.steps ?? [];
+  const summary = poolSummary(event, tasks, today);
   return <section className="reviewPoolSteps examReviewSteps" aria-label={`${event.title} 复习任务`}>
-    <div className="reviewPoolStepsHead"><span>复习任务 · {steps.filter((step) => step.done).length}/{steps.length}</span>
-      {!readOnly && !adding && <button type="button" className="textButton" disabled={steps.length >= 50} onClick={() => { setEditing(null); setError(""); setAdding(true); }}>＋ 复习任务</button>}</div>
-    {steps.length > 0 && <ul>{steps.map((step) => <li key={step.id}>
-      {editing?.id === step.id && !readOnly ? <form className="reviewPoolStepForm reviewPoolStepEditForm" aria-label={`修改复习任务：${step.title}`} onKeyDown={(event) => {
-        if (event.key === "Escape" && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); setEditing(null); setFocusStep(step.id); setError(""); }
-        else submitFormOnEnter(event);
-      }} onSubmit={(submit) => {
-        submit.preventDefault();
-        try { saveSteps(editReviewPoolStep(steps, step.id, editing.title)); setEditing(null); setFocusStep(step.id); setError(""); }
-        catch (cause) { setError(cause instanceof Error ? cause.message : "暂时无法修改复习任务"); }
-      }}><input autoFocus aria-label="修改复习任务内容" required maxLength={500} value={editing.title} onChange={(change) => { setEditing({ ...editing, title: change.target.value }); setError(""); }} /><button type="submit" className="textButton">保存</button><button type="button" className="textButton" onClick={() => { setEditing(null); setFocusStep(step.id); setError(""); }}>取消</button></form> : <>
-        <ExamStepCheck event={event} step={step} readOnly={readOnly} onChange={onChange} />
-        <span className={`reviewPoolStepTitle${step.done ? " reviewPoolStepDone" : ""}`}>{step.title}</span>
-        {!event.done && (step.selectedDate === today || !step.done) && <button type="button" className="textButton reviewPoolStepChoose" disabled={readOnly}
-          aria-label={`${step.selectedDate === today ? "取消今天复习" : "今天复习"}：${event.title} · ${step.title}`}
-          onClick={() => saveSteps(steps.map((current) => current.id === step.id ? { ...current, selectedDate: step.selectedDate === today ? undefined : today } : current))}>{step.selectedDate === today ? "取消今天" : "今天做"}</button>}
-        {!readOnly && <><button ref={focusStep === step.id ? editRef : undefined} type="button" className="reviewPoolStepEdit" aria-label={`修改复习任务：${step.title}`} onClick={() => { setAdding(false); setEditing({ id: step.id, title: step.title }); setError(""); }}>修改</button>
-          <button type="button" className="reviewPoolStepRemove" aria-label={`删除复习任务：${step.title}`} onClick={() => { setRemoved({ step, index: steps.findIndex((current) => current.id === step.id) }); setError(""); saveSteps(steps.filter((current) => current.id !== step.id)); }}>删除</button></>}
-      </>}
-    </li>)}</ul>}
-    {removed && !readOnly && <div className="reviewPoolStepUndo"><span role="status">已删除 {removed.step.title}</span><button type="button" ref={undoRef} className="textButton" onClick={() => {
-      try { createReviewPoolStep(steps, removed.step.title, removed.step.id); const restored = [...steps]; restored.splice(Math.min(removed.index, restored.length), 0, removed.step); saveSteps(restored); setRemoved(null); setError(""); }
-      catch (cause) { setError(cause instanceof Error ? cause.message : "暂时无法恢复复习任务"); }
-    }}>撤销</button></div>}
-    {adding && !readOnly && <form className="reviewPoolStepForm" onKeyDown={submitFormOnEnter} onSubmit={(submit) => {
-      submit.preventDefault();
-      try { saveSteps([...steps, createReviewPoolStep(steps, draft, crypto.randomUUID())]); setDraft(""); setError(""); }
-      catch (cause) { setError(cause instanceof Error ? cause.message : "暂时无法添加复习任务"); }
-    }}><input autoFocus aria-label={`${event.title} 新复习任务`} required maxLength={500} value={draft} onChange={(change) => { setDraft(change.target.value); setError(""); }} /><button type="submit" className="textButton">添加</button><button type="button" className="textButton" onClick={() => { setAdding(false); setDraft(""); setError(""); }}>收起</button></form>}
-    {error && <p className="reviewPoolStepError" role="alert">{error}</p>}
+    <div className="reviewPoolStepsHead"><span>复习任务 · {summary.completed}/{summary.total}</span>
+      <button type="button" className="textButton" disabled={readOnly} onClick={() => onCreateTask(event.id)}>＋ 复习任务</button></div>
+    {tasks.length > 0 && <ul>{tasks.map((task) => {
+      const done = taskStatusOf(task) === "已完成";
+      const plannedToday = taskVisibleToday(task, today);
+      const plannedDate = defaultTaskPlannedDate(task);
+      const multi = taskModeOf(task) === "multi";
+      const schedule = [multi ? "长期任务" : "短期任务", multi && !done ? `${taskStatusOf(task)} · ${taskProgressOf(task)}%` : "", plannedDate ? `${plannedDate} 推进` : "", task.due ? `截止 ${taskDeadlineLabel(task)}` : "未设截止"].filter(Boolean).join(" · ");
+      return <li key={task.id}>
+        <button type="button" role="checkbox" className="checkButton reviewPoolCheck" aria-checked={done}
+          aria-label={`${done ? "重新打开复习任务" : "完成复习任务"}：${event.title} · ${task.title}`} disabled={readOnly}
+          onClick={() => onToggleTask(task.id)}>{done ? "✓" : ""}</button>
+        <div className="reviewPoolStepTitle examReviewTaskText"><button type="button" className={`taskTitleButton${done ? " reviewPoolStepDone" : ""}`} onClick={() => onEditTask(task.id)}>{task.title}</button><span className="examReviewTaskMeta">{schedule}</span></div>
+        {!done && <button type="button" className="textButton reviewPoolStepChoose" disabled={readOnly}
+          aria-label={`${plannedToday ? "取消今天复习" : "今天复习"}：${event.title} · ${task.title}`}
+          onClick={() => plannedToday ? onCancelToday(task.id) : onPlanToday(task.id)}>{plannedToday ? "取消今天" : "今天做"}</button>}
+        <button type="button" className="reviewPoolStepEdit" disabled={readOnly} aria-label={`修改复习任务：${task.title}`} onClick={() => onEditTask(task.id)}>修改</button>
+        <button type="button" className="reviewPoolStepRemove" disabled={readOnly} aria-label={`删除复习任务：${task.title}`} onClick={() => onDeleteTask(task.id)}>删除</button>
+      </li>;
+    })}</ul>}
+    {legacySteps.length > 0 && <div className="examReviewLegacyTasks"><p>以下旧复习任务已保留。任务数量达到上限时，腾出空间后刷新即可转换。</p><ul>{legacySteps.map((step) => <li key={step.id}><span aria-label={step.done ? "已完成" : "未完成"}>{step.done ? "✓" : "○"}</span><span className={`reviewPoolStepTitle${step.done ? " reviewPoolStepDone" : ""}`}>{step.title}</span></li>)}</ul></div>}
   </section>;
 }
 
@@ -87,7 +81,7 @@ export function ExamReviewPoolEntry({ onOpen }: { onOpen: () => void }) {
   </button>;
 }
 
-export function ExamReviewPoolDialog({ events, courses, today, readOnly, initialEventId, onClose, onChange, onCreateExam, onEditExam, onToggleExam, onExcludeExam }: ExamReviewProps & {
+export function ExamReviewPoolDialog({ events, tasks, courses, today, readOnly, initialEventId, onClose, onChange, onCreateExam, onEditExam, onToggleExam, onExcludeExam, onCreateTask, onEditTask, onToggleTask, onPlanToday, onCancelToday, onDeleteTask }: ExamReviewProps & {
   initialEventId?: string;
   onClose: () => void;
   onCreateExam: () => void;
@@ -110,6 +104,13 @@ export function ExamReviewPoolDialog({ events, courses, today, readOnly, initial
   const [focusEvent, setFocusEvent] = useState<string | null>(null);
   const exams = events.filter(isExamReviewEvent);
   const excluded = events.filter((event) => isExamReviewCandidate(event) && event.examReview?.excluded);
+  const tasksByExam = new Map<string, ExamReviewTask[]>();
+  for (const task of tasks) {
+    if (!task.examEventId) continue;
+    const related = tasksByExam.get(task.examEventId);
+    if (related) related.push(task);
+    else tasksByExam.set(task.examEventId, [task]);
+  }
   const search = query.trim().normalize("NFKC").toLocaleLowerCase();
   const visible = (scope === "excluded" ? excluded : exams.filter((event) => event.done === (scope === "finished")))
     .filter((event) => !search || `${event.title} ${courseOf(event, courses)}`.normalize("NFKC").toLocaleLowerCase().includes(search))
@@ -148,7 +149,8 @@ export function ExamReviewPoolDialog({ events, courses, today, readOnly, initial
       <ul className="reviewPoolList examReviewExamList">{visible.map((event) => {
         const open = expanded.has(event.id);
         const review = reviewOf(event);
-        const summary = examReviewSummary(event, today);
+        const relatedTasks = tasksByExam.get(event.id) ?? [];
+        const summary = poolSummary(event, relatedTasks, today);
         const course = courseOf(event, courses);
         if (scope === "excluded") return <li key={event.id} className="examReviewExam examReviewExcludedRow">
           <div className="examReviewExamTitle"><strong>{event.title}</strong><span className="examReviewExamMeta">{course ? `${course} · ` : ""}{dateOf(event)}</span></div>
@@ -156,34 +158,16 @@ export function ExamReviewPoolDialog({ events, courses, today, readOnly, initial
         </li>;
         return <li key={event.id} className="examReviewExam">
           <button type="button" ref={(focusEvent ?? initialEventId) === event.id ? initialRef : undefined} className="examReviewExamToggle" aria-expanded={open} aria-label={`${open ? "收起" : "展开"}考试复习：${event.title}`} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(event.id)) next.delete(event.id); else next.add(event.id); return next; })}>
-            <span className="examReviewExamTitle"><strong>{event.title}</strong><span className="examReviewExamMeta">{event.assessmentType === "quiz" ? "测验" : "考试"}{course ? ` · ${course}` : ""} · {dateOf(event)}</span><ExamTodaySummary event={event} today={today} /></span>
+            <span className="examReviewExamTitle"><strong>{event.title}</strong><span className="examReviewExamMeta">{event.assessmentType === "quiz" ? "测验" : "考试"}{course ? ` · ${course}` : ""} · {dateOf(event)}</span><ExamTodaySummary summary={summary} /></span>
             <span className="examReviewExamCount">{summary.completed}/{summary.total}</span><span className={`reviewPoolDisclosure${open ? " reviewPoolDisclosureOpen" : ""}`} aria-hidden="true">›</span>
           </button>
           {open && <div className="reviewPoolDetails examReviewExamDetails">
             <div className="reviewPoolItemActions"><button type="button" className="textButton" disabled={readOnly} onClick={() => onEditExam(event.id)}>修改考试</button><button type="button" className="textButton" disabled={readOnly} onClick={() => onToggleExam(event.id)}>{event.done ? "重新打开考试" : "标记考试结束"}</button><button type="button" className="textButton" disabled={readOnly} aria-label={`移出考试复习池：${event.title}`} title="仅移出复习池，保留原事项和复习内容" onClick={() => { onExcludeExam(event.id, true); setRemoved({ id: event.id, title: event.title }); }}>移出复习池</button></div>
-            <ExamReviewSteps event={event} today={today} readOnly={readOnly} onChange={onChange} />
-            <label className="reviewPoolNote"><span>进度与备注</span><textarea aria-label={`${event.title} 复习进度与备注`} rows={3} maxLength={4000} value={review.note} disabled={readOnly} onChange={(change) => onChange(event.id, { ...review, note: change.target.value })} /></label>
+            <ExamReviewTasks event={event} tasks={relatedTasks} today={today} readOnly={readOnly} onCreateTask={onCreateTask} onEditTask={onEditTask} onToggleTask={onToggleTask} onPlanToday={onPlanToday} onCancelToday={onCancelToday} onDeleteTask={onDeleteTask} />
+            <label className="reviewPoolNote"><span>进度与备注</span><textarea aria-label={`${event.title} 复习进度与备注`} rows={3} maxLength={4000} value={review.note} disabled={readOnly} onChange={(change) => onChange(event.id, { note: change.target.value })} /></label>
           </div>}
         </li>;
       })}</ul>
     </div>
   </dialog>;
-}
-
-export function ExamReviewToday({ events, courses, today, readOnly, onChange, onOpenEvent }: ExamReviewProps & { onOpenEvent: (eventId: string) => void }) {
-  const selected = events.filter((event) => isExamReviewEvent(event) && !event.done && event.examReview?.steps.some((step) => reviewPoolStepVisibleOnDate(step, today)));
-  if (!selected.length) return null;
-  return <section className="reviewPoolToday examReviewToday" aria-label="今日考试复习"><h2>考试复习</h2>{selected.map((event) => {
-    const review = reviewOf(event);
-    const course = courseOf(event, courses);
-    const steps = review.steps.filter((step) => reviewPoolStepVisibleOnDate(step, today));
-    return <div className="reviewPoolTodayGroup" key={event.id}>
-      <button type="button" className="reviewPoolTodayCourse examReviewTodayExam" onClick={() => onOpenEvent(event.id)}><span>{event.title}</span><ExamTodaySummary event={event} today={today} /><small>{course ? `${course} · ` : ""}{dateOf(event)}</small></button>
-      <ul className="reviewPoolTodaySteps">{steps.map((step) => <li className={`reviewPoolTodayRow${step.done ? " reviewPoolDone" : ""}`} key={step.id}>
-        <ExamStepCheck event={event} step={step} readOnly={readOnly} onChange={onChange} />
-        <button type="button" className="reviewPoolTodayTitle reviewPoolTodayStepTitle" onClick={() => onOpenEvent(event.id)}><span>{step.title}</span></button>
-        <button type="button" className="reviewPoolTodayCancel" disabled={readOnly} aria-label={`取消今天复习：${event.title} · ${step.title}`} onClick={() => onChange(event.id, { ...review, steps: review.steps.map((current) => current.id === step.id ? { ...current, selectedDate: undefined } : current) })}>取消今天</button>
-      </li>)}</ul>
-    </div>;
-  })}</section>;
 }

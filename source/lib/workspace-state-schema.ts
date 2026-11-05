@@ -162,7 +162,7 @@ export const workspaceStateSchema = z.object({
   reviewPool: courseReviewPool.optional(),
   tasks: z.array(z.object({
     id, title: shortText, area, source: shortText, due: date.optional(), done: z.boolean(), completedDate: date.optional(), dismissedTodayDate: date.optional(), today: z.boolean(), elapsed: z.number().int().min(0).max(10_000_000),
-    parentId: id.optional(), parentMilestoneId: id.optional(), courseId: id.optional(), showOnCalendar: z.boolean().optional(), progressedDates: z.array(date).max(36_600).optional(), blocks: z.array(block).max(2000).optional(),
+    parentId: id.optional(), parentMilestoneId: id.optional(), examEventId: id.optional(), courseId: id.optional(), showOnCalendar: z.boolean().optional(), progressedDates: z.array(date).max(36_600).optional(), blocks: z.array(block).max(2000).optional(),
     requirements: text.optional(), attachments: z.array(storedAttachment).max(50).optional(), parentCandidate: z.boolean().optional(),
     mode: z.enum(["single", "multi"]).optional(), startDate: date.optional(), dueTime: time.optional(), plannedDate: date.optional(), status: taskStatus.optional(), progress: z.number().int().min(0).max(100).optional(), progressLogs: z.array(taskProgressLog).max(2_000).optional(),
   }).strict().superRefine((task, context) => {
