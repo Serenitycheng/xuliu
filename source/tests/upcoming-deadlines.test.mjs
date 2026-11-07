@@ -40,3 +40,16 @@ test("the seven-day window includes today and its end date across month and year
   assert.deepEqual(upcomingDeadlines([task("today", "2026-12-29"), task("end", "2027-01-05"), task("outside", "2027-01-06")], [], "2026-12-29").map((item) => item.id), ["today", "end"]);
   assert.deepEqual(upcomingDeadlines([task("leap-day", "2028-02-29"), task("end", "2028-03-06"), task("outside", "2028-03-07")], [], "2028-02-28").map((item) => item.id), ["leap-day", "end"]);
 });
+
+test("schedule-only events are omitted while old events and task semantics keep their reminders", () => {
+  const nodes = [
+    node("schedule", today, { requiresCompletion: false }),
+    node("legacy", today),
+    node("required", today, { requiresCompletion: true }),
+    node("also-task", today, { requiresCompletion: false, alsoTask: true }),
+    node("course", today, { requiresCompletion: false, courseId: "course" }),
+  ];
+  const before = structuredClone(nodes);
+  assert.deepEqual(upcomingDeadlines([], nodes, today).map((item) => item.id), ["legacy", "required", "also-task", "course"]);
+  assert.deepEqual(nodes, before);
+});

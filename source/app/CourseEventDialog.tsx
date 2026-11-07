@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { assessmentTypeOptions, eventCourseChoices, type AssessmentType, type EventDateKind } from "@/lib/course-events";
+import { assessmentTypeOptions, defaultEventRequiresCompletion, eventCourseChoices, type AssessmentType, type EventDateKind } from "@/lib/course-events";
 import { submitFormOnEnter } from "./form-keyboard";
 import { isValidLocalDate, isValidLocalTime, localDateKey } from "@/lib/finance";
 import { defaultTaskPlannedDate, newTaskPlannedDate, taskModeOf, workDateChangeAllowed, workDateInputMinimum, type TaskMode } from "@/lib/task-progress";
@@ -30,6 +30,12 @@ export function CourseEventDialog({ node, courses, readOnly, onSave, onClose, de
   const [alsoTask, setAlsoTask] = useState(node?.alsoTask ?? false);
   const [modeOverride, setModeOverride] = useState<TaskMode | undefined>(node?.mode);
   const [showOnCalendar, setShowOnCalendar] = useState(node?.showOnCalendar ?? true);
+  const [completionOverride, setCompletionOverride] = useState<boolean | undefined>(() => node ? node.requiresCompletion ?? true : undefined);
+  const requiresCompletion = completionOverride ?? defaultEventRequiresCompletion({
+    area: form.linkedCourseId ? "课内" : form.area,
+    eventDateKind: (form.eventDateKind || undefined) as EventDateKind | undefined,
+    assessmentType: (form.assessmentType || undefined) as AssessmentType | undefined,
+  });
   const courseChoices = eventCourseChoices(courses);
   const currentDate = localDateKey();
   const schedule = { ...node, title: form.title, assessmentType: (form.assessmentType || undefined) as AssessmentType | undefined, alsoTask, mode: modeOverride, date: form.date, plannedDate: form.plannedDate || undefined, ...(form.plannedDate !== (node?.plannedDate ?? "") ? { dismissedTodayDate: undefined } : {}) };
@@ -61,6 +67,7 @@ export function CourseEventDialog({ node, courses, readOnly, onSave, onClose, de
       area: form.linkedCourseId ? "课内" : form.area as CourseNode["area"],
       courseLinkReviewed: true,
       showOnCalendar,
+      requiresCompletion,
     };
     if (form.linkedCourseId) saved.linkedCourseId = form.linkedCourseId;
     else delete saved.linkedCourseId;
@@ -95,12 +102,13 @@ export function CourseEventDialog({ node, courses, readOnly, onSave, onClose, de
         <label><span>{dateLabel}</span><input type="date" min={workDateInputMinimum(form.date, currentDate, node?.date)} value={form.date} onChange={(event) => patch("date", event.target.value)} /></label>
         <label><span>{timeLabel}</span><input type="time" value={form.time} onChange={(event) => patch("time", event.target.value)} /></label>
         <label className="courseEventWide courseEventTaskToggle"><input type="checkbox" checked={showOnCalendar} onChange={(event) => setShowOnCalendar(event.target.checked)} /><span>显示在日历</span></label>
+        <label className="courseEventWide courseEventTaskToggle"><input type="checkbox" checked={alsoTask || requiresCompletion} disabled={alsoTask} onChange={(event) => setCompletionOverride(event.target.checked)} /><span>需要勾选完成</span></label>
         <label className="courseEventWide courseEventTaskToggle"><input type="checkbox" checked={alsoTask} onChange={(event) => setAlsoTask(event.target.checked)} /><span>同时作为任务</span></label>
         {alsoTask && <><label><span>任务类型</span><select aria-label="事项任务类型" value={mode} onChange={(event) => setModeOverride(event.target.value as TaskMode)}><option value="single">短期任务</option><option value="multi">长期任务</option></select></label><label><span>计划推进日（可选）</span><input type="date" aria-label="事项任务计划推进日" min={workDateInputMinimum(plannedDate, currentDate, node?.alsoTask ? defaultTaskPlannedDate(node) : node?.plannedDate)} value={plannedDate} onChange={(event) => patch("plannedDate", event.target.value)} /></label></>}
         <details className="courseEventMore courseEventWide" open={Boolean(node?.location || node?.requirements || node?.plannedDate)}>
           <summary>更多信息</summary>
           <div className="courseEventExtraFields">
-            {!alsoTask && <label><span>计划推进日</span><input type="date" min={workDateInputMinimum(form.plannedDate, currentDate, node?.plannedDate)} value={form.plannedDate} onChange={(event) => patch("plannedDate", event.target.value)} /></label>}
+            {!alsoTask && requiresCompletion && <label><span>计划推进日</span><input type="date" min={workDateInputMinimum(form.plannedDate, currentDate, node?.plannedDate)} value={form.plannedDate} onChange={(event) => patch("plannedDate", event.target.value)} /></label>}
             <label className="courseEventWide"><span>地点</span><input value={form.location} maxLength={500} onChange={(event) => patch("location", event.target.value)} /></label>
             <label className="courseEventWide"><span>要求与备注</span><textarea rows={3} value={form.requirements} maxLength={4000} onChange={(event) => patch("requirements", event.target.value)} /></label>
           </div>

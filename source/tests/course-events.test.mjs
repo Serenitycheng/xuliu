@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assessmentTypeLabel, eventCourseChoices, eventCourseLabel, eventDateLabel, migrateCourseEvents } from '../lib/course-events.ts';
+import { assessmentTypeLabel, defaultEventRequiresCompletion, eventCourseChoices, eventCourseLabel, eventDateLabel, eventRequiresCompletion, migrateCourseEvents } from '../lib/course-events.ts';
 import { createEmptyWorkspaceState, workspaceStateSchema } from '../lib/workspace-state-schema.ts';
 import { aiCourseContextFromWorkspace } from '../lib/ai-course-context.ts';
 import { cancelWorkForDate, courseNodeVisibleToday, defaultTaskPlannedDate, isTaskNode, planTaskForDate, withWorkCompletionDates } from '../lib/task-progress.ts';
@@ -11,6 +11,49 @@ import { upcomingDeadlines } from '../lib/upcoming-deadlines.ts';
 const course = (id, title) => ({ id, title, term: '', teacher: '', location: '', progress: 0, requirements: '', schedule: [], blocks: [] });
 const event = (id, title, patch = {}) => ({ id, title, date: '2026-10-26', time: '00:00', location: '', requirements: '', area: '课内', done: false, ...patch });
 const stateFor = (milestones, courses = [course('probability', '概率论与数理统计')]) => ({ ...createEmptyWorkspaceState(), milestones, courses });
+
+test('completion choice preserves old events while course tasks and also-task events always remain completable', () => {
+  const legacy = event('legacy', '已有生活日程', { area: '生活', eventDateKind: 'occurs', done: true });
+  assert.equal(eventRequiresCompletion(legacy), true);
+  assert.equal(eventRequiresCompletion({ ...legacy, requiresCompletion: true }), true);
+  assert.equal(eventRequiresCompletion({ ...legacy, requiresCompletion: false }), false);
+  assert.equal(eventRequiresCompletion({ ...legacy, requiresCompletion: false, alsoTask: true }), true);
+  assert.equal(eventRequiresCompletion({ ...legacy, requiresCompletion: false, courseId: 'probability' }), true);
+  const saved = workspaceStateSchema.parse(stateFor([legacy]));
+  assert.deepEqual(saved.milestones[0], legacy);
+  assert.equal(Object.hasOwn(saved.milestones[0], 'requiresCompletion'), false);
+});
+
+test('only a new ordinary life occurrence defaults to schedule-only; deadlines and assessments remain completable', () => {
+  assert.equal(defaultEventRequiresCompletion({ area: '生活', eventDateKind: 'occurs' }), false);
+  for (const area of ['课内', '课外', '工作', '思考']) assert.equal(defaultEventRequiresCompletion({ area, eventDateKind: 'occurs' }), true);
+  assert.equal(defaultEventRequiresCompletion({ area: '生活', eventDateKind: 'deadline' }), true);
+  assert.equal(defaultEventRequiresCompletion({ area: '生活' }), true);
+  for (const assessmentType of ['exam', 'quiz', 'submission', 'presentation', 'paper']) {
+    assert.equal(defaultEventRequiresCompletion({ area: '生活', eventDateKind: 'occurs', assessmentType }), true);
+  }
+});
+
+test('completion choice roundtrips strictly without changing done, dates or calendar visibility', () => {
+  const nodes = [
+    event('schedule', '日程', { area: '生活', eventDateKind: 'occurs', requiresCompletion: false, showOnCalendar: true, done: true, completedDate: '2026-10-25', plannedDate: '2026-10-24' }),
+    event('hidden', '隐藏日历', { requiresCompletion: true, showOnCalendar: false }),
+    event('task', '兼作任务', { requiresCompletion: false, alsoTask: true }),
+    event('course-task', '课程任务', { requiresCompletion: false, courseId: 'probability' }),
+  ];
+  const state = stateFor(nodes);
+  const saved = workspaceStateSchema.parse(JSON.parse(JSON.stringify(state)));
+  assert.deepEqual(saved, state);
+  assert.equal(eventRequiresCompletion(saved.milestones[0]), false);
+  assert.equal(eventRequiresCompletion(saved.milestones[2]), true);
+  assert.equal(eventRequiresCompletion(saved.milestones[3]), true);
+  const visible = manualCalendarItems(saved);
+  assert.ok(visible.some((entry) => entry.item.id === 'schedule'));
+  assert.equal(visible.some((entry) => entry.item.id === 'hidden'), false);
+  for (const requiresCompletion of ['false', 0, 1, null]) {
+    assert.equal(workspaceStateSchema.safeParse(stateFor([event('invalid', '无效', { requiresCompletion })])).success, false);
+  }
+});
 
 test('one manual event can also be a task with a default DDL-2 plan and one calendar/deadline record', () => {
   const node = event('both', '概率论作业', { date: '2026-10-31', time: '', alsoTask: true, eventDateKind: 'deadline', linkedCourseId: 'probability', requirements: '交完整过程' });

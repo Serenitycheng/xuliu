@@ -170,7 +170,7 @@ export const workspaceStateSchema = z.object({
     if (task.dueTime && !task.due) context.addIssue({ code: "custom", message: "设置截止时间前请先选择截止日期" });
   })).max(10_000),
   milestones: z.array(z.object({
-    id, courseId: id.optional(), linkedCourseId: id.optional(), courseLinkReviewed: z.boolean().optional(), alsoTask: z.boolean().optional(), showOnCalendar: z.boolean().optional(), assessmentType: z.enum(["exam", "quiz", "submission", "presentation", "paper"]).optional(), eventDateKind: z.enum(["occurs", "deadline"]).optional(), examReview: examReview.optional(),
+    id, courseId: id.optional(), linkedCourseId: id.optional(), courseLinkReviewed: z.boolean().optional(), alsoTask: z.boolean().optional(), requiresCompletion: z.boolean().optional(), showOnCalendar: z.boolean().optional(), assessmentType: z.enum(["exam", "quiz", "submission", "presentation", "paper"]).optional(), eventDateKind: z.enum(["occurs", "deadline"]).optional(), examReview: examReview.optional(),
     automationKey: shortText.optional(), title: shortText, date: z.union([date, z.literal("")]), time: z.union([time, z.literal("")]), plannedDate: date.optional(), progressedDates: z.array(date).max(36_600).optional(), completedDate: date.optional(), dismissedTodayDate: date.optional(), location: shortText, requirements: text,
     attachments: z.array(storedAttachment).max(50).optional(), outcomeText: text.optional(), outcomeAttachments: z.array(storedAttachment).max(50).optional(), blocks: z.array(block).max(2000).optional(), elapsed: z.number().int().min(0).max(10000000).optional(), mode: z.enum(["single", "multi"]).optional(), parentCandidate: z.boolean().optional(), area, done: z.boolean(),
   }).strict().superRefine((node, context) => {

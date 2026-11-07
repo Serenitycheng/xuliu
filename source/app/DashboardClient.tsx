@@ -9,7 +9,7 @@ import { ExamReviewPoolDialog, ExamReviewPoolEntry } from "./ExamReviewPool";
 import { isExamReviewCandidate, isExamReviewEvent, migrateExamReviewTasks, setExamReviewExcluded, updateExamReview } from "@/lib/exam-review-pool";
 import { normalizedHabit, toggledHabit } from "@/lib/habit-streak";
 import { CourseEventDialog } from "./CourseEventDialog";
-import { assessmentTypeLabel, assessmentTypeOptions, eventCourseChoices, eventCourseLabel, eventDateLabel, migrateCourseEvents } from "@/lib/course-events";
+import { assessmentTypeLabel, assessmentTypeOptions, eventCourseChoices, eventCourseLabel, eventDateLabel, eventRequiresCompletion, migrateCourseEvents } from "@/lib/course-events";
 import { isFormSaveEnter as isDialogSaveEnter, submitFormOnEnter } from "./form-keyboard";
 import { CourseReviewPoolDialog, DeferStudyDialog, ReviewPoolEntry, ReviewPoolToday } from "./CourseReviewPool";
 import { editedStudyToReviewPool, deleteReviewPoolItem, initializeCourseReviewPool, restoreReviewPoolItem, reviewPoolTodayCounts, updateReviewPoolItem, withoutReviewPoolSources, type CourseReviewPool, type ReviewPoolItem } from "@/lib/course-review-pool";
@@ -759,7 +759,9 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
   const reviewToday = <ReviewPoolToday items={data.reviewPool?.items ?? []} today={reviewDate} readOnly={readOnly} onChange={changeReviewItem} onOpenItem={setReviewPoolOpen} />;
   const reviewEntry = <div className="reviewPoolEntries">{data.reviewPool && <ReviewPoolEntry onOpen={() => setReviewPoolOpen("")} />}<ExamReviewPoolEntry onOpen={() => setExamPoolOpen("")} /></div>;
   const todayTasks = displayedData.tasks.filter((task) => taskVisibleToday(task, reviewDate));
-  const todayCourseNodes = displayedData.milestones.filter((node) => studyTaskVisibleOnDate(node, reviewDate));
+  const todayCourseNodes = displayedData.milestones.filter((node) => eventRequiresCompletion(node)
+    ? studyTaskVisibleOnDate(node, reviewDate)
+    : node.date === reviewDate);
   const resetStudyPlan = () => {
     if (readOnly) return;
     const date = dateKey();
@@ -1003,6 +1005,10 @@ function TodayView({ onOpenReviewPool, onOpenExamPool, appearanceControls, revie
   const addEvent = () => setCreatingEvent(true);
   const courseTasks = milestones.filter(isTaskNode);
   const calendarItems = milestones.filter((node) => !node.courseId && (!node.alsoTask || node.date === today));
+  const completionItems = calendarItems.filter(eventRequiresCompletion);
+  const eventMeta = completionItems.length || !calendarItems.length
+    ? `${completionItems.filter((item) => item.done).length} / ${completionItems.length}`
+    : `${calendarItems.length} 项日程`;
   type TodayTaskEntry = { kind: "task"; item: TaskItem } | { kind: "milestone"; item: Milestone };
   const shortEntries: TodayTaskEntry[] = [
     ...tasks.filter((task) => taskModeOf(task) !== "multi").map((item) => ({ kind: "task" as const, item })),
@@ -1094,7 +1100,30 @@ function TodayView({ onOpenReviewPool, onOpenExamPool, appearanceControls, revie
         </div>) : group.entries.map(renderTaskEntry)}</div>
         {!group.entries.length && !(group.id === "single" && selectedReviewCount) && <div className="emptyState compact"><h2>今天没有{group.title}</h2></div>}
         {group.id === "single" && reviewToday}
-      </section>{group.id === "single" && <section className="panel taskPanel todayCategoryPanel"><PanelTitle title="事项" meta={calendarItems.filter((item) => item.done).length + " / " + calendarItems.length} /><div className="taskList">{calendarItems.map((item) => <div className={"taskRow " + (item.done ? "done" : "")} key={item.id}><button className="checkButton" disabled={readOnly} aria-pressed={item.done} aria-label={(item.done ? "标记未完成：" : "标记完成：") + item.title} onClick={() => setData((current) => ({ ...current, milestones: current.milestones.map((node) => node.id === item.id ? { ...node, done: !node.done } : node) }))}>{item.done ? "✓" : ""}</button><div className="taskBody"><button className="taskTitleButton" onClick={() => readOnly ? openWork({ kind: "milestone", id: item.id }) : setEditingNode(item)}>{item.title}</button>{item.done && <span className="taskStatus 已完成 todayCompletionStatus">已完成</span>}<span>{[eventDateLabel(item), eventCourseLabel(item, data.courses), assessmentTypeLabel(item.assessmentType), item.location].filter(Boolean).join(" · ")}</span><button className="taskRecordLink" onClick={() => readOnly ? openWork({ kind: "milestone", id: item.id }) : setEditingNode(item)}>{readOnly ? "查看详细信息" : "修改基础信息"}</button></div><div className="taskRowActions"><span className={"areaTag " + areaClass[item.area]}>{item.area}</span>{!item.done && <button type="button" className="quickPostponeButton" disabled={readOnly} aria-label={"将事项推迟一天：" + item.title} onClick={() => postponeWork({ kind: "milestone", id: item.id })}>＋1天</button>}<button type="button" className="miniRemove todayQuickDelete" disabled={readOnly} aria-label={"快捷删除事项：" + item.title} onClick={() => requestDelete({ kind: "milestone", id: item.id }, item.title)}>×</button></div></div>)}</div>{!calendarItems.length && <div className="emptyState compact"><h2>今天没有事项</h2></div>}</section>}</Fragment>)}
+      </section>{group.id === "single" && <section className="panel taskPanel todayCategoryPanel">
+        <PanelTitle title="事项" meta={eventMeta} />
+        <div className="taskList">{calendarItems.map((item) => {
+          const requiresCompletion = eventRequiresCompletion(item);
+          const done = requiresCompletion && item.done;
+          return <div className={"taskRow " + (done ? "done" : "")} key={item.id}>
+            {requiresCompletion ? <button className="checkButton" disabled={readOnly} aria-pressed={done} aria-label={(done ? "标记未完成：" : "标记完成：") + item.title} onClick={() => setData((current) => ({
+              ...current, milestones: current.milestones.map((node) => node.id === item.id && eventRequiresCompletion(node) ? { ...node, done: !node.done } : node),
+            }))}>{done ? "✓" : ""}</button> : <span aria-hidden="true" />}
+            <div className="taskBody">
+              <button className="taskTitleButton" onClick={() => readOnly ? openWork({ kind: "milestone", id: item.id }) : setEditingNode(item)}>{item.title}</button>
+              {done && <span className="taskStatus 已完成 todayCompletionStatus">已完成</span>}
+              <span>{[!requiresCompletion && "日程", eventDateLabel(item), eventCourseLabel(item, data.courses), assessmentTypeLabel(item.assessmentType), item.location].filter(Boolean).join(" · ")}</span>
+              <button className="taskRecordLink" onClick={() => readOnly ? openWork({ kind: "milestone", id: item.id }) : setEditingNode(item)}>{readOnly ? "查看详细信息" : "修改基础信息"}</button>
+            </div>
+            <div className="taskRowActions">
+              <span className={"areaTag " + areaClass[item.area]}>{item.area}</span>
+              {!done && <button type="button" className="quickPostponeButton" disabled={readOnly} aria-label={"将事项推迟一天：" + item.title} onClick={() => postponeWork({ kind: "milestone", id: item.id })}>＋1天</button>}
+              <button type="button" className="miniRemove todayQuickDelete" disabled={readOnly} aria-label={"快捷删除事项：" + item.title} onClick={() => requestDelete({ kind: "milestone", id: item.id }, item.title)}>×</button>
+            </div>
+          </div>;
+        })}</div>
+        {!calendarItems.length && <div className="emptyState compact"><h2>今天没有事项</h2></div>}
+      </section>}</Fragment>)}
       <section className="panel notePanel"><PanelTitle title="今日随记" meta="自动保存" /><textarea value={daily.note} onChange={(event) => updateDaily("note", event.target.value)} aria-label="今日随记" /></section>
     </div><div className="stack"><section className="panel studyPlanPanel"><PanelTitle title="课表学习计划" meta={data.studyAutomation.enabled ? "已开启" : "已暂停"} /><p>{data.studyAutomation.enabled ? `今日自动安排 ${automaticTasks.length} 项` : "已暂停"}</p><div className="studyPlanActions"><button className="softButton" disabled={readOnly} onClick={toggleStudyPlan}>{data.studyAutomation.enabled ? "暂停自动安排" : "开启自动安排"}</button>{data.studyAutomation.enabled && <button className="softButton" disabled={readOnly} onClick={resetStudyPlan}>重新安排今天</button>}</div></section>{focusPanel}<section className="panel todayHabitsPanel"><PanelTitle title="今日习惯" meta={data.habits.filter((habit) => habit.today).length + " / " + data.habits.length} /><div className="todayHabitList">{data.habits.map((habit) => <div className="habitRow todayHabitRow" key={habit.id}><button className={`habitCheck ${habit.today ? "done" : ""}`} disabled={readOnly} aria-pressed={habit.today} aria-label={(habit.today ? "取消打卡：" : "完成打卡：") + habit.title} onClick={() => setData((current) => ({ ...current, habits: current.habits.map((item) => item.id === habit.id ? toggledHabit(item) : item) }))}>{habit.today ? "✓" : ""}</button><div><strong>{habit.title}</strong><span>{habit.schedule} · 连续 {habit.streak} 天</span></div></div>)}</div>{!data.habits.length && <div className="emptyState compact"><h2>还没有习惯</h2></div>}</section><div className="miniStats withoutTime"><div><strong>{allTaskEntries.filter((entry) => entry.item.done).length + completedReviews}</strong><span>完成任务</span></div><div><strong>{Math.round(data.habits.filter((habit) => habit.today).length / Math.max(1, data.habits.length) * 100)}%</strong><span>习惯完成</span></div></div><section className="panel reminderPanel"><PanelTitle title="生活提醒" /><div className="reminderList">{data.reminders.map((reminder) => <div className="reminderRow" key={reminder.id}><span className={"reminderIcon " + reminder.type}>{reminder.type === "sleep" ? "眠" : reminder.type === "break" ? "息" : reminder.type === "exercise" ? "动" : "提"}</span><div><strong>{reminder.title}</strong><span>{[...(reminder.type === "break" ? ["每 " + (reminder.intervalMinutes ?? 20) + " 分钟 · 自动计时"] : []), ...reminder.times].join(" / ")} · {reminder.enabled ? "等待提醒" : "已关闭"}</span></div><button className="softButton" onClick={() => setPopup({ eyebrow: "提醒预览", title: reminder.title, body: "你可以完成、延迟 5 分钟或关闭这条页面提示。" })}>预览</button></div>)}</div></section>
       <section className="panel upcomingDeadlinePanel" aria-label="近期截止">
@@ -1313,6 +1342,8 @@ function TaskDetail({ target, data, setData, access, onOpen, onClose, requestDel
   if (!item) return <div className="page"><button className="backButton" onClick={onClose}>← 返回</button><p>这项内容已不存在。</p></div>;
   const isEvent = Boolean(node && !node.courseId);
   const isCourseTask = Boolean(node?.courseId);
+  const requiresCompletion = !node || eventRequiresCompletion(node);
+  const done = requiresCompletion && item.done;
   const entityLabel = isEvent ? "事项" : "任务";
   const children = data.tasks.filter((entry) => target.kind === "task" ? entry.parentId === target.id : entry.parentMilestoneId === target.id);
   const parent: WorkTarget | undefined = task?.parentId ? { kind: "task", id: task.parentId } : task?.parentMilestoneId ? { kind: "milestone", id: task.parentMilestoneId } : undefined;
@@ -1321,10 +1352,10 @@ function TaskDetail({ target, data, setData, access, onOpen, onClose, requestDel
     ? (taskModeOf(task) === "multi" ? "长期任务" : "短期任务") + " · " + task.area + " · " + task.source + " · " + taskScheduleSummary(task, dateKey())
     : isCourseTask
       ? (node?.mode === "multi" ? "长期任务" : "短期任务") + " · 课内 · " + node?.date + " " + node?.time + " · " + (data.courses.find((course) => course.id === node?.courseId)?.title ?? "课程任务")
-      : ["事项", node && (eventCourseLabel(node, data.courses) || node.area), node && assessmentTypeLabel(node.assessmentType), node && eventDateLabel(node), node?.plannedDate && node.plannedDate + " 计划推进", node?.location].filter(Boolean).join(" · ");
+      : [requiresCompletion ? "事项" : "日程", node && (eventCourseLabel(node, data.courses) || node.area), node && assessmentTypeLabel(node.assessmentType), node && eventDateLabel(node), requiresCompletion && node?.plannedDate && node.plannedDate + " 计划推进", node?.location].filter(Boolean).join(" · ");
   const toggle = () => setData((current) => target.kind === "task"
     ? { ...current, tasks: current.tasks.map((entry) => entry.id === target.id ? withTaskCompletion(entry, !entry.done) : entry) }
-    : { ...current, milestones: current.milestones.map((entry) => entry.id === target.id ? { ...entry, done: !entry.done } : entry) });
+    : { ...current, milestones: current.milestones.map((entry) => entry.id === target.id && eventRequiresCompletion(entry) ? { ...entry, done: !entry.done } : entry) });
   const remove = () => requestDelete(target, item.title);
   const saveTask = (value: TaskItem) => {
     setData((current) => ({ ...current, tasks: current.tasks.some((entry) => entry.id === value.id) ? current.tasks.map((entry) => entry.id === value.id ? preserveTaskContent(entry, value) : entry) : [...current.tasks, value] }));
@@ -1336,8 +1367,8 @@ function TaskDetail({ target, data, setData, access, onOpen, onClose, requestDel
   return <div className="page taskDetailPage">
     <button className="backButton" disabled={nodePending} onClick={onClose}>← 返回列表</button>
     {reviewStudy && !access.readOnly && <StudyReviewDialog request={reviewStudy} data={data} setData={setData} onClose={() => setReviewStudy(null)} onSaved={() => { setReviewStudy(null); onClose(); }} />}
-    <PageHead eyebrow={isEvent ? "事项详情" : isCourseTask ? "课程任务详情" : "任务详情"} title={item.title} subtitle={subtitle} action={<div className="pageHeadActions">{task && <button className="softButton" disabled={access.readOnly} onClick={() => setEditing(task)}>修改任务</button>}{isEvent && <button className="softButton" disabled={access.readOnly || nodePending} onClick={() => setEditingEvent(true)}>修改事项</button>}{!item.done && (!isEvent || node?.date) && <button className="softButton" disabled={access.readOnly || nodePending} onClick={() => postponeWork(target)}>推迟 1 天</button>}{(!isEvent || node?.alsoTask) && !item.done && (task ? taskVisibleToday(task, dateKey()) : node && courseNodeVisibleToday(node, dateKey())) && <button type="button" className="cancelTodayButton" disabled={access.readOnly} onClick={() => cancelToday(target)}>取消今天</button>}<button className="primaryButton" disabled={access.readOnly} onClick={toggle}>{item.done ? "重新打开" + entityLabel : "标记" + entityLabel + "完成"}</button><details className="taskMoreActions taskDetailMore"><summary>更多</summary><div>{(!isEvent || node?.alsoTask) && <WorkAdvanceButton work={item} date={dateKey()} disabled={access.readOnly || nodePending} onClick={() => advanceWork(target)} />}<button type="button" className="dangerText" disabled={access.readOnly || nodePending} onClick={remove}>删除{entityLabel}</button></div></details></div>} />
-    <WorkProgressBadge work={item} date={dateKey()} />
+    <PageHead eyebrow={isEvent ? "事项详情" : isCourseTask ? "课程任务详情" : "任务详情"} title={item.title} subtitle={subtitle} action={<div className="pageHeadActions">{task && <button className="softButton" disabled={access.readOnly} onClick={() => setEditing(task)}>修改任务</button>}{isEvent && <button className="softButton" disabled={access.readOnly || nodePending} onClick={() => setEditingEvent(true)}>修改事项</button>}{!done && (!isEvent || node?.date) && <button className="softButton" disabled={access.readOnly || nodePending} onClick={() => postponeWork(target)}>推迟 1 天</button>}{(!isEvent || node?.alsoTask) && !item.done && (task ? taskVisibleToday(task, dateKey()) : node && courseNodeVisibleToday(node, dateKey())) && <button type="button" className="cancelTodayButton" disabled={access.readOnly} onClick={() => cancelToday(target)}>取消今天</button>}{requiresCompletion && <button className="primaryButton" disabled={access.readOnly} onClick={toggle}>{done ? "重新打开" + entityLabel : "标记" + entityLabel + "完成"}</button>}<details className="taskMoreActions taskDetailMore"><summary>更多</summary><div>{(!isEvent || node?.alsoTask) && <WorkAdvanceButton work={item} date={dateKey()} disabled={access.readOnly || nodePending} onClick={() => advanceWork(target)} />}<button type="button" className="dangerText" disabled={access.readOnly || nodePending} onClick={remove}>删除{entityLabel}</button></div></details></div>} />
+    {requiresCompletion && <WorkProgressBadge work={item} date={dateKey()} />}
     {parent && <button className="taskParentLink" disabled={nodePending} onClick={() => onOpen(parent)}>属于：{parentTitle ?? "查看关联内容"} →</button>}
     <div className="taskDetailGrid"><div className="stack">
       {task && <section className="panel taskWorkPanel"><SectionHead title="任务内容" action={!task.requirements && !requirementsExpanded && !access.readOnly ? <button className="softButton" onClick={() => setRequirementsExpanded(true)}>＋ 添加具体要求</button> : undefined} />{(Boolean(task.requirements) || requirementsExpanded) && <label className="editField"><span>具体要求</span><textarea readOnly={access.readOnly} maxLength={4000} value={task.requirements ?? ""}  onChange={(event) => { const requirements = event.target.value; setData((current) => ({ ...current, tasks: current.tasks.map((entry) => entry.id === task.id ? { ...entry, requirements } : entry) })); }} /></label>}<details className="taskDetailDisclosure taskAttachmentsDisclosure"><summary>要求附件 <span>{task.attachments?.length ?? 0} 个</span></summary><NodeAttachments nodeId={task.id} scope="task" label="要求" files={task.attachments ?? []} access={access} onBlockedChange={setNodePending} onChange={(update) => setData((current) => ({ ...current, tasks: current.tasks.map((entry) => entry.id === task.id ? { ...entry, attachments: update(entry.attachments ?? []) } : entry) }))} /></details></section>}
@@ -1357,34 +1388,40 @@ function TaskOverviewView({ reviewPoolEntry, data, setData, setDialog, openWork,
   const [scope, setScope] = useState<"semester" | "week" | "active" | "done">("semester");
   const [editingTask, setEditingTask] = useState<TaskItem | "new" | null>(null);
   const [editingNode, setEditingNode] = useState<Milestone | null>(null);
-  const [eventAreaFilter, setEventAreaFilter] = useState("");
   const [eventCourseFilter, setEventCourseFilter] = useState("");
   const [eventAssessmentFilter, setEventAssessmentFilter] = useState("");
   const end = new Date();
   end.setDate(end.getDate() + 7);
   const weekEnd = dateKey(end);
   const items = [
-    ...data.tasks.map((task) => ({ id: task.id, kind: "task" as const, entity: "task" as const, period: taskModeOf(task), title: task.title, area: task.area, source: task.courseId ? data.courses.find((course) => course.id === task.courseId)?.title ?? task.source : task.source, due: task.due ?? "", done: task.done, progress: taskProgressOf(task), status: taskStatusOf(task), task, node: undefined })),
-    ...data.milestones.map((node) => ({ id: node.id, kind: "milestone" as const, entity: isTaskNode(node) ? "task" as const : "event" as const, period: isTaskNode(node) ? taskModeOf(node) : undefined, title: node.title, area: node.area, source: node.courseId ? data.courses.find((course) => course.id === node.courseId)?.title ?? "课程任务" : eventCourseLabel(node, data.courses) || node.location || "日历事项", due: node.date, done: node.done, progress: node.done ? 100 : 0, status: node.done ? "已完成" as const : "未开始" as const, task: undefined, node })),
+    ...data.tasks.map((task) => ({ id: task.id, kind: "task" as const, entity: "task" as const, period: taskModeOf(task), title: task.title, area: task.area, source: task.courseId ? data.courses.find((course) => course.id === task.courseId)?.title ?? task.source : task.source, due: task.due ?? "", requiresCompletion: true, done: task.done, progress: taskProgressOf(task), status: taskStatusOf(task), task, node: undefined })),
+    ...data.milestones.map((node) => {
+      const requiresCompletion = eventRequiresCompletion(node);
+      return {
+        id: node.id, kind: "milestone" as const, entity: isTaskNode(node) ? "task" as const : "event" as const, period: isTaskNode(node) ? taskModeOf(node) : undefined, title: node.title, area: node.area, source: node.courseId ? data.courses.find((course) => course.id === node.courseId)?.title ?? "课程任务" : eventCourseLabel(node, data.courses) || node.location || "日历事项", due: node.date, requiresCompletion, done: requiresCompletion && node.done, progress: node.done ? 100 : 0, status: node.done ? "已完成" as const : "未开始" as const, task: undefined, node
+      };
+    }),
   ].sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
   const visible = items.filter((item) => {
     if (scope === "done") return item.done;
     if (scope === "active") return !item.done && item.entity === "task" && item.period === "multi";
-    if (scope === "week") return !item.done && taskOverlapsRange(item.task ?? { ...item.node, due: item.due }, today, weekEnd);
+    if (scope === "week") return !item.done && (item.requiresCompletion
+      ? taskOverlapsRange(item.task ?? { ...item.node, due: item.due }, today, weekEnd)
+      : item.due >= today && item.due <= weekEnd);
     return !item.done;
   });
   const sections = [
     { id: "single", title: "短期任务", items: visible.filter((item) => item.entity === "task" && item.period !== "multi" && !taskAwaitingStart(item.task ?? item.node!, today)) },
     { id: "multi", title: "长期任务", items: visible.filter((item) => item.entity === "task" && item.period === "multi" && !taskAwaitingStart(item.task ?? item.node!, today)) },
     { id: "pending", title: "待推进", items: visible.filter((item) => item.entity === "task" && taskAwaitingStart(item.task ?? item.node!, today)) },
-    { id: "event", title: "事项", items: visible.filter((item) => (item.entity === "event" || item.node?.alsoTask) && (!eventAreaFilter || item.area === eventAreaFilter) && (!eventCourseFilter || (eventCourseFilter === "unlinked" ? !item.node?.linkedCourseId : item.node?.linkedCourseId === eventCourseFilter)) && (!eventAssessmentFilter || item.node?.assessmentType === eventAssessmentFilter)) },
+    { id: "event", title: "事项", items: visible.filter((item) => (item.entity === "event" || item.node?.alsoTask) && (!eventCourseFilter || (eventCourseFilter === "unlinked" ? !item.node?.linkedCourseId : item.node?.linkedCourseId === eventCourseFilter)) && (!eventAssessmentFilter || item.node?.assessmentType === eventAssessmentFilter)) },
   ];
   const taskCount = items.filter((item) => item.entity === "task" && !item.done).length;
   const eventCount = items.filter((item) => item.entity === "event" || item.node?.alsoTask).length;
-  const weekCount = items.filter((item) => !item.done && taskOverlapsRange(item.task ?? { ...item.node, due: item.due }, today, weekEnd)).length;
+  const weekCount = items.filter((item) => item.requiresCompletion && !item.done && taskOverlapsRange(item.task ?? { ...item.node, due: item.due }, today, weekEnd)).length;
   const toggle = (item: (typeof items)[number]) => setData((current) => item.kind === "task"
     ? { ...current, tasks: current.tasks.map((entry) => entry.id === item.id ? withTaskCompletion(entry, !entry.done) : entry) }
-    : { ...current, milestones: current.milestones.map((entry) => entry.id === item.id ? { ...entry, done: !entry.done } : entry) });
+    : { ...current, milestones: current.milestones.map((entry) => entry.id === item.id && eventRequiresCompletion(entry) ? { ...entry, done: !entry.done } : entry) });
   const saveTask = (task: TaskItem) => setData((current) => ({ ...current, tasks: current.tasks.some((item) => item.id === task.id) ? current.tasks.map((item) => item.id === task.id ? preserveTaskContent(item, task) : item) : [...current.tasks, task] }));
   const planToday = (item: (typeof items)[number]) => {
     if (readOnly || item.done || item.entity !== "task") return;
@@ -1400,13 +1437,13 @@ function TaskOverviewView({ reviewPoolEntry, data, setData, setDialog, openWork,
     const isMulti = item.entity === "task" && item.period === "multi";
     const latest = item.task?.progressLogs?.at(-1);
     const scheduledItem = item.task ?? item.node!;
-    const plannedDate = item.entity === "task" ? defaultTaskPlannedDate(scheduledItem) : item.node?.plannedDate;
+    const plannedDate = item.entity === "task" ? defaultTaskPlannedDate(scheduledItem) : item.requiresCompletion ? item.node?.plannedDate : undefined;
     const defaultPlan = plannedDate && item.entity === "task" && !item.node?.automationKey && !item.id.startsWith("stage:") && (!isMulti || isPreparationEventTask(scheduledItem)) && Boolean(item.task?.due || item.node && isTaskNode(item.node) && item.node.date) && (!scheduledItem.plannedDate || scheduledItem.plannedDate === scheduledItem.dismissedTodayDate);
-    const cancelledToday = scheduledItem.dismissedTodayDate === today;
+    const cancelledToday = item.requiresCompletion && scheduledItem.dismissedTodayDate === today;
     const plannedToday = !cancelledToday && (item.task ? taskVisibleToday(item.task, today) : Boolean(item.node && isTaskNode(item.node) && courseNodeVisibleToday(item.node, today)));
     return <div className={"overviewRow " + (item.done ? "done " : "") + (isMulti ? "multiTask" : "")} key={item.kind + "-" + item.id}>
-      <button className="checkButton" disabled={readOnly} aria-pressed={item.done} aria-label={(item.done ? "重新打开" : "完成") + item.title} onClick={() => toggle(item)}>{item.done ? "✓" : ""}</button>
-      <div className="overviewTaskMain"><div className="overviewTaskTitle"><button className="taskTitleButton" onClick={() => readOnly ? openWork({ kind: item.kind, id: item.id }) : item.task ? setEditingTask(item.task) : setEditingNode(item.node!)}>{item.title}</button><span className={"areaTag " + areaClass[item.area]}>{item.area}</span>{isMulti && <span className={"taskStatus " + item.status}>{item.status}</span>}</div><WorkProgressBadge work={item.task ?? item.node!} date={dateKey()} /><span>{item.task?.parentId ? "属于：" + (data.tasks.find((task) => task.id === item.task!.parentId)?.title ?? "上级任务") : item.task?.parentMilestoneId ? "属于：" + (data.milestones.find((node) => node.id === item.task!.parentMilestoneId)?.title ?? "关联对象") : item.source || "未分类"}{item.node?.courseId ? " · 课程任务" : item.node?.assessmentType ? " · " + assessmentTypeLabel(item.node.assessmentType) : ""}</span>{item.task && isMulti && <><div className="taskOverviewProgress"><i><b style={{ width: item.progress + "%" }} /></i><strong>{item.progress}%</strong></div>{latest && <small>{latest.date}{latest.note ? " · " + latest.note : " · 记录为 " + latest.progress + "%"}</small>}</>}</div>
+      {item.requiresCompletion ? <button className="checkButton" disabled={readOnly} aria-pressed={item.done} aria-label={(item.done ? "重新打开" : "完成") + item.title} onClick={() => toggle(item)}>{item.done ? "✓" : ""}</button> : <span aria-hidden="true" />}
+      <div className="overviewTaskMain"><div className="overviewTaskTitle"><button className="taskTitleButton" onClick={() => readOnly ? openWork({ kind: item.kind, id: item.id }) : item.task ? setEditingTask(item.task) : setEditingNode(item.node!)}>{item.title}</button><span className={"areaTag " + areaClass[item.area]}>{item.requiresCompletion ? item.area : "日程"}</span>{isMulti && <span className={"taskStatus " + item.status}>{item.status}</span>}</div>{item.requiresCompletion && <WorkProgressBadge work={item.task ?? item.node!} date={dateKey()} />}<span>{item.task?.parentId ? "属于：" + (data.tasks.find((task) => task.id === item.task!.parentId)?.title ?? "上级任务") : item.task?.parentMilestoneId ? "属于：" + (data.milestones.find((node) => node.id === item.task!.parentMilestoneId)?.title ?? "关联对象") : item.source || "未分类"}{item.node?.courseId ? " · 课程任务" : item.node?.assessmentType ? " · " + assessmentTypeLabel(item.node.assessmentType) : ""}</span>{item.task && isMulti && <><div className="taskOverviewProgress"><i><b style={{ width: item.progress + "%" }} /></i><strong>{item.progress}%</strong></div>{latest && <small>{latest.date}{latest.note ? " · " + latest.note : " · 记录为 " + latest.progress + "%"}</small>}</>}</div>
       <div className="overviewTaskSide"><div className="overviewSchedule"><time>{item.task ? (isMulti ? (item.task.startDate || "未设开始") + " → " : item.task.due ? "截止 " : "") + taskDeadlineLabel(item.task) : item.node ? eventDateLabel(item.node) : "待定"}</time>{plannedDate && <small>{!cancelledToday && plannedDate === today ? "今日推进" : plannedDate + " 计划推进"}{defaultPlan ? isMulti ? " · 默认提前7天" : " · 默认截止前2天" : ""}</small>}{cancelledToday && <small className="cancelledTodayLabel">今天已取消</small>}{item.task && isMulti && <small>{taskScheduleSummary(item.task, today)}</small>}{item.node?.courseId && <small>{item.node.time}{item.node.location ? " · " + item.node.location : ""}</small>}</div>
       <div className="overviewTaskActions">
         {item.node?.automationKey ? <AutomaticStudyActions advanceAction={item.entity === "task" && <WorkAdvanceButton work={item.task ?? item.node!} date={dateKey()} disabled={readOnly} onClick={() => advanceWork({ kind: item.kind, id: item.id })} />} title={item.title} done={item.done} readOnly={readOnly} plannedToday={plannedToday} onEdit={() => setEditingNode(item.node!)} onDelete={() => requestDelete({ kind: item.kind, id: item.id }, item.title)} onOpen={() => openWork({ kind: item.kind, id: item.id })} onPostpone={() => postponeWork({ kind: item.kind, id: item.id })} onCancel={() => cancelToday({ kind: item.kind, id: item.id })} onDefer={item.node.automationKey.startsWith("study:") ? () => setReviewStudy({ node: item.node! }) : undefined} /> : <>
@@ -1429,14 +1466,29 @@ function TaskOverviewView({ reviewPoolEntry, data, setData, setDialog, openWork,
         <summary><span>待推进</span><span>{section.items.length} 项</span></summary>
         <div className="overviewList">{section.items.map(renderOverviewItem)}</div>
       </details> : null;
-      const sourceGroups = section.id === "event" ? [{ id: "event", title: "", items: section.items }] : [
+      if (section.id === "event") {
+        const areas: Area[] = ["生活", "工作", "课内", "课外", "思考"];
+        return <details className="panel overviewPanel overviewGroup event overviewEventSection" key={section.id} open>
+          <summary className="overviewGroupHead overviewEventSectionHead"><div><span>日历</span><h2>事项</h2></div><strong>{section.items.length}</strong></summary>
+          <details className="courseEventFilters"><summary>筛选事项{eventCourseFilter || eventAssessmentFilter ? " · 已筛选" : ""}</summary><div><label><span>课程</span><select aria-label="按课程筛选事项" value={eventCourseFilter} onChange={(event) => setEventCourseFilter(event.target.value)}><option value="">全部课程</option><option value="unlinked">未关联课程</option>{eventCourseChoices(data.courses).map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label><label><span>考核类型</span><select aria-label="按考核类型筛选事项" value={eventAssessmentFilter} onChange={(event) => setEventAssessmentFilter(event.target.value)}><option value="">全部类型</option>{assessmentTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>{(eventCourseFilter || eventAssessmentFilter) && <button type="button" onClick={() => { setEventCourseFilter(""); setEventAssessmentFilter(""); }}>清除筛选</button>}</div></details>
+          <div className="overviewList">
+            {areas.map((area) => {
+              const entries = section.items.filter((item) => item.area === area);
+              return entries.length > 0 && <details className="overviewEventCategory" key={area}>
+                <summary><strong>{area}</strong><span>{entries.length} 项</span></summary>
+                <div className="overviewEventRows">{entries.map(renderOverviewItem)}</div>
+              </details>;
+            })}
+            {!section.items.length && <div className="emptyState compact"><h2>暂无事项</h2></div>}
+          </div>
+        </details>;
+      }
+      const sourceGroups = [
         { id: "manual", title: "手动任务", items: section.items.filter((item) => !item.node?.automationKey) },
         { id: "automatic", title: "自动学习任务", items: section.items.filter((item) => Boolean(item.node?.automationKey)) },
       ].filter((group) => group.items.length);
       return <section className={"panel overviewPanel overviewGroup " + section.id} key={section.id}>
-      <div className="overviewGroupHead"><div><span>{section.id === "event" ? "日历" : "任务"}</span><h2>{section.title}</h2></div><strong>{section.items.length}</strong></div>
-      {section.id === "event" && <div className="eventAreaTabs" role="group" aria-label="事项分类">{["", "生活", "工作", "课内", "课外", ...(items.some((item) => (item.entity === "event" || item.node?.alsoTask) && item.area === "思考") ? ["思考"] : [])].map((area) => <button key={area} type="button" aria-pressed={eventAreaFilter === area} onClick={() => setEventAreaFilter(area)}>{area || "全部"}</button>)}</div>}
-      {section.id === "event" && <details className="courseEventFilters"><summary>筛选事项{eventCourseFilter || eventAssessmentFilter ? " · 已筛选" : ""}</summary><div><label><span>课程</span><select aria-label="按课程筛选事项" value={eventCourseFilter} onChange={(event) => setEventCourseFilter(event.target.value)}><option value="">全部课程</option><option value="unlinked">未关联课程</option>{eventCourseChoices(data.courses).map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label><label><span>考核类型</span><select aria-label="按考核类型筛选事项" value={eventAssessmentFilter} onChange={(event) => setEventAssessmentFilter(event.target.value)}><option value="">全部类型</option>{assessmentTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>{(eventCourseFilter || eventAssessmentFilter) && <button type="button" onClick={() => { setEventCourseFilter(""); setEventAssessmentFilter(""); }}>清除筛选</button>}</div></details>}
+      <div className="overviewGroupHead"><div><span>任务</span><h2>{section.title}</h2></div><strong>{section.items.length}</strong></div>
       <div className="overviewList">{sourceGroups.map((group) => <div className="overviewTaskSubgroup" key={group.id}>
         {group.title && <div className="overviewTaskSubhead"><strong>{group.title}</strong><span>{group.items.length} 项</span></div>}
         {group.id === "automatic" ? [...new Set(group.items.map((item) => item.node?.courseId))].map((courseId) => {
@@ -1663,12 +1715,13 @@ function CalendarView({ data, setData, setDialog, openWork, readOnly }: { data: 
       const outside = key.slice(0, 7) !== viewMonth;
       const events = calendarItems.filter((entry) => entry.date === key);
       return <div className={"calendarCell " + (outside ? "outsideMonth " : "") + (key === today ? "today" : "")} key={key} data-date={key}><strong title={key}>{outside ? `${date.getMonth() + 1}/${date.getDate()}` : date.getDate()}</strong><div>{events.map((entry) => {
-        const completed = entry.kind === "task" ? taskStatusOf(entry.item) === "已完成" : entry.item.done;
+        const requiresCompletion = entry.kind === "task" || eventRequiresCompletion(entry.item);
+        const completed = requiresCompletion && (entry.kind === "task" ? taskStatusOf(entry.item) === "已完成" : entry.item.done);
         const label = entry.category === "deadline" ? "DDL" : entry.category === "task" ? "任务" : "事项";
         const details = entry.kind === "milestone"
           ? [eventCourseLabel(entry.item, data.courses), assessmentTypeLabel(entry.item.assessmentType), eventDateLabel(entry.item), entry.item.location]
           : [entry.item.source, taskDeadlineLabel(entry.item), !entry.item.due && entry.item.plannedDate ? `计划推进 ${entry.item.plannedDate}` : ""];
-        return <button type="button" key={`${entry.kind}:${entry.item.id}`} className={"calendarEvent calendarCategory-" + entry.category + (completed ? " calendarEventDone" : "")} title={[completed ? "已完成" : "", label, ...details, entry.item.title].filter(Boolean).join(" · ")} aria-label={[completed ? "已完成" : "未完成", label, entry.time, entry.item.title].filter(Boolean).join(" · ")} onClick={() => entry.kind === "task" || readOnly ? openWork({ kind: entry.kind, id: entry.item.id }) : setEditingNode(entry.item)}><small>{completed ? "✓ " : ""}{label}</small><span className="calendarEventName">{entry.time ? `${entry.time} ` : ""}{entry.item.title}</span></button>;
+        return <button type="button" key={`${entry.kind}:${entry.item.id}`} className={"calendarEvent calendarCategory-" + entry.category + (completed ? " calendarEventDone" : "")} title={[completed ? "已完成" : "", label, ...details, entry.item.title].filter(Boolean).join(" · ")} aria-label={[completed ? "已完成" : requiresCompletion ? "未完成" : "", label, entry.time, entry.item.title].filter(Boolean).join(" · ")} onClick={() => entry.kind === "task" || readOnly ? openWork({ kind: entry.kind, id: entry.item.id }) : setEditingNode(entry.item)}><small>{completed ? "✓ " : ""}{label}</small><span className="calendarEventName">{entry.time ? `${entry.time} ` : ""}{entry.item.title}</span></button>;
       })}</div></div>;
     })}</div></div></section>{creatingEvent && <CourseEventDialog courses={data.courses} readOnly={readOnly} onClose={() => setCreatingEvent(false)} onSave={(node) => { setData((current) => ({ ...current, milestones: [...current.milestones, node] })); setCreatingEvent(false); }} />}
     {editingNode && <MilestoneSettingsDialog courses={data.courses} node={editingNode} onClose={() => setEditingNode(null)} onSave={(node) => { setData((current) => ({ ...current, milestones: current.milestones.map((item) => item.id === node.id ? node : item) })); setEditingNode(null); }} onOpenDetail={() => { const id = editingNode.id; setEditingNode(null); openWork({ kind: "milestone", id }); }} />}</div>;

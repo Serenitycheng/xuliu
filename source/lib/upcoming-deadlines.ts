@@ -1,9 +1,10 @@
 import { isValidLocalDate, isValidLocalTime } from "./finance.ts";
 import { taskStatusOf, type TaskScheduleLike } from "./task-progress.ts";
 import { addDays } from "./timetable.ts";
+import { eventRequiresCompletion } from "./course-events.ts";
 
 type DeadlineTask = TaskScheduleLike & { id: string; title: string };
-type DeadlineNode = { id: string; title: string; date: string; time?: string; done: boolean; courseId?: string; alsoTask?: boolean; automationKey?: string };
+type DeadlineNode = { id: string; title: string; date: string; time?: string; done: boolean; courseId?: string; alsoTask?: boolean; requiresCompletion?: boolean; automationKey?: string };
 export type UpcomingDeadline = { id: string; kind: "task" | "milestone"; entity: "task" | "event"; title: string; date: string; time?: string };
 
 export function upcomingDeadlines(tasks: DeadlineTask[], nodes: DeadlineNode[], today: string, days = 7): UpcomingDeadline[] {
@@ -14,7 +15,7 @@ export function upcomingDeadlines(tasks: DeadlineTask[], nodes: DeadlineNode[], 
   return [
     ...tasks.flatMap((task): UpcomingDeadline[] => taskStatusOf(task) !== "已完成" && inRange(task.due)
       ? [{ id: task.id, kind: "task", entity: "task", title: task.title, date: task.due, time: timeOf(task.dueTime) }] : []),
-    ...nodes.flatMap((node): UpcomingDeadline[] => !node.done && !node.automationKey && inRange(node.date)
+    ...nodes.flatMap((node): UpcomingDeadline[] => eventRequiresCompletion(node) && !node.done && !node.automationKey && inRange(node.date)
       ? [{ id: node.id, kind: "milestone", entity: node.courseId || node.alsoTask ? "task" : "event", title: node.title, date: node.date, time: timeOf(node.time) }] : []),
   ].sort((left, right) => left.date.localeCompare(right.date) || (left.time || "23:59").localeCompare(right.time || "23:59"));
 }

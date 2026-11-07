@@ -2,13 +2,22 @@ import { isCourseTitleCandidate } from "./timetable.ts";
 
 export type AssessmentType = "exam" | "quiz" | "submission" | "presentation" | "paper";
 export type EventDateKind = "occurs" | "deadline";
-export type CourseEventFields = { linkedCourseId?: string; assessmentType?: AssessmentType; eventDateKind?: EventDateKind; courseLinkReviewed?: boolean; alsoTask?: boolean };
+export type CourseEventFields = { linkedCourseId?: string; assessmentType?: AssessmentType; eventDateKind?: EventDateKind; courseLinkReviewed?: boolean; alsoTask?: boolean; requiresCompletion?: boolean };
 type CourseIdentity = { id: string; title: string };
 
 export function eventCourseChoices<T extends CourseIdentity>(courses: T[]) {
   return courses.filter((course) => isCourseTitleCandidate(course.title));
 }
 type EventLike = CourseEventFields & { courseId?: string; title: string; date: string; time: string };
+
+export function eventRequiresCompletion(node: Pick<CourseEventFields, "requiresCompletion" | "alsoTask"> & { courseId?: string }): boolean {
+  return Boolean(node.courseId) || node.alsoTask === true || node.requiresCompletion !== false;
+}
+
+/** Apply only to new events; an absent stored flag preserves the legacy behavior. */
+export function defaultEventRequiresCompletion(node: Pick<CourseEventFields, "eventDateKind" | "assessmentType"> & { area: string }): boolean {
+  return !(node.area === "生活" && node.eventDateKind === "occurs" && !node.assessmentType);
+}
 
 export const assessmentTypeOptions: { value: AssessmentType; label: string }[] = [
   { value: "exam", label: "考试" },
