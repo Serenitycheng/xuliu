@@ -862,7 +862,7 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
   return <div className={"shell design-" + designMode} style={{ "--accent": interfaceColor } as React.CSSProperties}>
     <aside className={`sidebar ${mobileNav ? "open" : ""}`}><button className="brand" onClick={() => navigate("today")}><span className="brandMark">序</span><span>序流</span></button><DailyYiyan /><div className="navGroup">{navItems.slice(0, 5).map((item) => <NavButton key={item.id} {...item} active={active} onClick={navigate} />)}</div><div className="navCaption">我的空间</div><div className="navGroup">{navItems.slice(5).map((item) => <NavButton key={item.id} {...item} active={active} onClick={navigate} />)}</div><button className="exportButton" onClick={exportData}>导出数据备份</button><button className="refreshButton" disabled={sync === "saving"} onClick={() => void reloadForUpdate()}>{sync === "saving" ? "保存后可刷新" : "↻ 刷新应用"}</button><a className="changelogLink" href="/changelog" target="_blank" rel="noreferrer">更新日志 ↗</a>{!preview && <button className="logoutButton" onClick={onLogout}>退出登录</button>}<div className="sidebarFoot"><span className={`syncDot ${sync}`} />{sync === "saving" ? "正在保存" : sync === "readonly" ? "正在查看只读空间" : sync === "error" ? "云端连接异常" : sync === "preview" ? "本地预览 · 不会写入云端" : "已保存到云端"}</div></aside>
     <main className="main">{preview && <div className="readOnlyBanner">本地预览 · 刷新后重置</div>}<header className="mobileHeader"><button className="iconButton" aria-label="打开导航" onClick={() => setMobileNav(true)}>☰</button><strong>序流</strong><div className="mobileHeaderActions"><button className="iconButton refreshIconButton" disabled={sync === "saving"} aria-label="刷新应用" title="刷新应用" onClick={() => void reloadForUpdate()}>↻</button><span className={`syncDot ${sync}`} /></div></header>{updateAvailable && <div className="updateBanner"><span>网站已有新版本，为避免继续使用旧页面，请先刷新。</span><button disabled={sync === "saving"} onClick={() => void reloadForUpdate()}>{sync === "saving" ? "等待保存" : "立即刷新"}</button></div>}{readOnly && <div className="readOnlyBanner">正在查看 <strong>{visibleAccount.displayName}</strong> 的空间 · 只读</div>}{!loaded ? <div className="workspaceLoading">正在载入空间…</div> : <>{workDetail ? <TaskDetail key={`${workspaceOwner}:${workDetail.kind}:${workDetail.id}`} target={workDetail} data={data} setData={setData} access={{ ownerId: workspaceOwner, readOnly, preview }} onOpen={setWorkDetail} onClose={() => setWorkDetail(null)} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} /> : detail ? <DetailRouter target={detail} data={taskListData} setData={setData} back={() => setDetail(null)} openWork={setWorkDetail} setDialog={setDialog} deleteDialog={deleteDialog} access={{ ownerId: workspaceOwner, readOnly, preview }} /> : <>
-      {active === "today" && <TodayView onOpenExamPool={() => setExamPoolOpen("")} onOpenReviewPool={data.reviewPool ? () => setReviewPoolOpen("") : undefined} appearanceControls={<AppearanceMenu color={interfaceColor} presets={themePresets} designMode={designMode} onDesignChange={chooseDesignMode} onChange={chooseInterfaceColor} />} reviewToday={reviewToday} data={displayedData} setData={setData} tasks={todayTasks} milestones={todayCourseNodes} daily={daily} updateDaily={updateDaily} focusPanel={focusPanel} resetStudyPlan={resetStudyPlan} openWork={setWorkDetail} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} access={{ ownerId: workspaceOwner, readOnly, preview }} readOnly={readOnly} setPopup={setPopup} setDialog={setDialog} />}
+      {active === "today" && <TodayView onOpenIdeas={() => navigate("ideas")} onOpenExamPool={() => setExamPoolOpen("")} onOpenReviewPool={data.reviewPool ? () => setReviewPoolOpen("") : undefined} appearanceControls={<AppearanceMenu color={interfaceColor} presets={themePresets} designMode={designMode} onDesignChange={chooseDesignMode} onChange={chooseInterfaceColor} />} reviewToday={reviewToday} data={displayedData} setData={setData} tasks={todayTasks} milestones={todayCourseNodes} daily={daily} updateDaily={updateDaily} focusPanel={focusPanel} resetStudyPlan={resetStudyPlan} openWork={setWorkDetail} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} access={{ ownerId: workspaceOwner, readOnly, preview }} readOnly={readOnly} setPopup={setPopup} setDialog={setDialog} />}
       {active === "timetable" && <TimetableViewV2 data={data} setData={setData} setDialog={setDialog} openCourse={(id) => setDetail({ type: "course", id })} deleteDialog={deleteDialog} dualSchool={workspaceOwner === "owner"} readOnly={readOnly} />}
       {active === "tasks" && <TaskOverviewView reviewPoolEntry={reviewEntry} data={displayedData} setData={setData} setDialog={setDialog} openWork={setWorkDetail} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} access={{ ownerId: workspaceOwner, readOnly, preview }} readOnly={readOnly} />}
       {active === "calendar" && <CalendarView data={displayedData} setData={setData} setDialog={setDialog} openWork={setWorkDetail} readOnly={readOnly} />}
@@ -1008,7 +1008,7 @@ function AutomaticStudyActions({ title, done, readOnly, plannedToday, onEdit, on
   </>;
 }
 
-function TodayView({ onOpenReviewPool, onOpenExamPool, appearanceControls, reviewToday, data, setData, tasks, milestones, daily, updateDaily, focusPanel, resetStudyPlan, openWork, requestDelete, postponeWork, advanceWork, cancelToday, access, readOnly, setPopup, setDialog }: { onOpenReviewPool?: () => void; onOpenExamPool: () => void; appearanceControls: React.ReactNode; reviewToday: React.ReactNode; data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; tasks: TaskItem[]; milestones: Milestone[]; daily: AppState["daily"][string]; updateDaily: (field: keyof AppState["daily"][string], value: string) => void; focusPanel: React.ReactNode; resetStudyPlan: () => void; openWork: (target: WorkTarget) => void; requestDelete: (target: WorkTarget, title: string) => void; postponeWork: (target: WorkTarget, days?: number) => void; advanceWork: (target: WorkTarget) => void; cancelToday: (target: WorkTarget) => void; access: EditorAccess; readOnly: boolean; setPopup: (value: PopupState) => void; setDialog: (value: DialogConfig) => void }) {
+function TodayView({ onOpenIdeas, onOpenReviewPool, onOpenExamPool, appearanceControls, reviewToday, data, setData, tasks, milestones, daily, updateDaily, focusPanel, resetStudyPlan, openWork, requestDelete, postponeWork, advanceWork, cancelToday, access, readOnly, setPopup, setDialog }: { onOpenIdeas: () => void; onOpenReviewPool?: () => void; onOpenExamPool: () => void; appearanceControls: React.ReactNode; reviewToday: React.ReactNode; data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; tasks: TaskItem[]; milestones: Milestone[]; daily: AppState["daily"][string]; updateDaily: (field: keyof AppState["daily"][string], value: string) => void; focusPanel: React.ReactNode; resetStudyPlan: () => void; openWork: (target: WorkTarget) => void; requestDelete: (target: WorkTarget, title: string) => void; postponeWork: (target: WorkTarget, days?: number) => void; advanceWork: (target: WorkTarget) => void; cancelToday: (target: WorkTarget) => void; access: EditorAccess; readOnly: boolean; setPopup: (value: PopupState) => void; setDialog: (value: DialogConfig) => void }) {
   const today = dateKey();
   const [deferringNode, setDeferringNode] = useState<ReviewStudyDraft | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
@@ -1147,9 +1147,36 @@ function TodayView({ onOpenReviewPool, onOpenExamPool, appearanceControls, revie
         </button>)}</div>
         {!deadlines.length && <p className="upcomingDeadlineEmpty">暂无</p>}
       </section>
+      <TodayIdeaPool ideas={data.ideas} setData={setData} readOnly={readOnly} onOpenIdeas={onOpenIdeas} />
     </div></div>
   </div>;
 }
+function TodayIdeaPool({ ideas, setData, readOnly, onOpenIdeas }: {
+  ideas: AppState["ideas"];
+  setData: React.Dispatch<React.SetStateAction<AppState>>;
+  readOnly: boolean;
+  onOpenIdeas: () => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const title = draft.trim();
+  const full = ideas.length >= 10_000;
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!title || readOnly || full) return;
+    const idea = { id: uid(), title, note: "", createdAt: dateKey() };
+    setData((current) => current.ideas.length >= 10_000 ? current : { ...current, ideas: [idea, ...current.ideas] });
+    setDraft("");
+  };
+  return <section className="panel todayIdeaPool" aria-label="想法池">
+    <PanelTitle title="想法池" action={ideas.length > 0 && <button type="button" className="textButton todayIdeaPoolLink" onClick={onOpenIdeas}>查看全部</button>} />
+    <form className="todayIdeaCapture" onSubmit={submit} onKeyDown={submitFormOnEnter}>
+      <input type="text" aria-label="新的想法" placeholder={full ? "想法池已满" : "想到什么，先记下来"} maxLength={500} value={draft} disabled={readOnly || full} onChange={(event) => setDraft(event.target.value)} />
+      <button type="submit" className="softButton" disabled={readOnly || full || !title}>加入</button>
+    </form>
+    {ideas.length > 0 && <ul className="todayIdeaList">{ideas.slice(0, 3).map((idea) => <li key={idea.id} title={idea.title}>{idea.title}</li>)}</ul>}
+  </section>;
+}
+
 function TimetableViewV2({ data, setData, setDialog, openCourse, deleteDialog, dualSchool, readOnly }: { data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; setDialog: (value: DialogConfig) => void; openCourse: (id: string) => void; deleteDialog: (title: string, onDelete: () => void) => void; dualSchool: boolean; readOnly: boolean }) {
   const [importOpen, setImportOpen] = useState(false);
   const [preset, setPreset] = useState<AcademicImportPreset>(data.timetableSettings.activeSchool);

@@ -1549,6 +1549,15 @@ a { color: inherit; }
 .overviewAutomaticCourse > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 .overviewAutomaticCourse > .overviewRow:first-of-type { border-top: 0; }
 .upcomingDeadlinePanel { padding: 22px; }
+.todayIdeaPool { min-width: 0; padding: 18px 22px; }
+.todayIdeaPoolLink { padding: 4px 0; white-space: nowrap; }
+.todayIdeaCapture { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 12px; }
+.todayIdeaCapture input { min-width: 0; width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--appearance-soft, var(--paper)); font: inherit; font-size: 13px; }
+.todayIdeaCapture input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.todayIdeaCapture .softButton { padding: 8px 12px; white-space: nowrap; }
+.todayIdeaList { display: grid; gap: 0; margin: 12px 0 0; padding: 0; list-style: none; }
+.todayIdeaList li { min-width: 0; padding: 8px 0; border-top: 1px solid var(--line); color: var(--text); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todayIdeaList li:last-child { padding-bottom: 0; }
 .upcomingDeadlineList { max-height: 360px; overflow-y: auto; }
 .upcomingDeadlineRow { display: grid; width: 100%; gap: 5px; min-width: 0; padding: 12px 2px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--text); text-align: left; cursor: pointer; font: inherit; }
 .upcomingDeadlineRow:first-child { border-top: 0; }
