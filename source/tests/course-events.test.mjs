@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assessmentTypeLabel, defaultEventRequiresCompletion, eventCourseChoices, eventCourseLabel, eventDateLabel, eventRequiresCompletion, migrateCourseEvents } from '../lib/course-events.ts';
+import { assessmentTypeLabel, defaultEventRequiresCompletion, eventCourseChoices, eventCourseLabel, eventDateLabel, eventRequiresCompletion, migrateCourseEvents, scheduleHasElapsed } from '../lib/course-events.ts';
 import { createEmptyWorkspaceState, workspaceStateSchema } from '../lib/workspace-state-schema.ts';
 import { aiCourseContextFromWorkspace } from '../lib/ai-course-context.ts';
 import { cancelWorkForDate, courseNodeVisibleToday, defaultTaskPlannedDate, isTaskNode, planTaskForDate, withWorkCompletionDates } from '../lib/task-progress.ts';
@@ -11,6 +11,18 @@ import { upcomingDeadlines } from '../lib/upcoming-deadlines.ts';
 const course = (id, title) => ({ id, title, term: '', teacher: '', location: '', progress: 0, requirements: '', schedule: [], blocks: [] });
 const event = (id, title, patch = {}) => ({ id, title, date: '2026-10-26', time: '00:00', location: '', requirements: '', area: '课内', done: false, ...patch });
 const stateFor = (milestones, courses = [course('probability', '概率论与数理统计')]) => ({ ...createEmptyWorkspaceState(), milestones, courses });
+
+test('schedules finish at their time or after their date without treating overdue tasks as completed', () => {
+  const schedule = event('appointment', '预约', { date: '2026-11-09', time: '14:30', requiresCompletion: false });
+  assert.equal(scheduleHasElapsed(schedule, '2026-11-09', '14:29'), false);
+  assert.equal(scheduleHasElapsed(schedule, '2026-11-09', '14:30'), true);
+  assert.equal(scheduleHasElapsed(schedule, '2026-11-08', '23:59'), false);
+  assert.equal(scheduleHasElapsed({ ...schedule, time: '' }, '2026-11-09', '23:59'), false);
+  assert.equal(scheduleHasElapsed({ ...schedule, time: '' }, '2026-11-10', '00:00'), true);
+  assert.equal(scheduleHasElapsed({ ...schedule, date: '' }, '2026-11-10', '00:00'), false);
+  assert.equal(scheduleHasElapsed({ ...schedule, requiresCompletion: undefined }, '2026-11-10', '00:00'), false);
+  assert.equal(scheduleHasElapsed({ ...schedule, alsoTask: true }, '2026-11-10', '00:00'), false);
+});
 
 test('completion choice preserves old events while course tasks and also-task events always remain completable', () => {
   const legacy = event('legacy', '已有生活日程', { area: '生活', eventDateKind: 'occurs', done: true });

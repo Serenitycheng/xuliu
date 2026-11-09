@@ -9,7 +9,7 @@ import { ExamReviewPoolDialog, ExamReviewPoolEntry } from "./ExamReviewPool";
 import { examReviewTaskSelectedOnDate, isExamReviewCandidate, isExamReviewEvent, isLinkedExamReviewTask, migrateExamReviewTasks, setExamReviewExcluded, setExamReviewTaskSelected, updateExamReview, withoutUnselectedExamReviewTasks } from "@/lib/exam-review-pool";
 import { normalizedHabit, toggledHabit } from "@/lib/habit-streak";
 import { CourseEventDialog } from "./CourseEventDialog";
-import { assessmentTypeLabel, assessmentTypeOptions, eventCourseChoices, eventCourseLabel, eventDateLabel, eventRequiresCompletion, migrateCourseEvents } from "@/lib/course-events";
+import { assessmentTypeLabel, assessmentTypeOptions, eventCourseChoices, eventCourseLabel, eventDateLabel, eventRequiresCompletion, migrateCourseEvents, scheduleHasElapsed } from "@/lib/course-events";
 import { isFormSaveEnter as isDialogSaveEnter, submitFormOnEnter } from "./form-keyboard";
 import { CourseReviewPoolDialog, DeferStudyDialog, ReviewPoolEntry, ReviewPoolToday } from "./CourseReviewPool";
 import { editedStudyToReviewPool, deleteReviewPoolItem, initializeCourseReviewPool, restoreReviewPoolItem, reviewPoolTodayCounts, updateReviewPoolItem, withoutReviewPoolSources, type CourseReviewPool, type ReviewPoolItem } from "@/lib/course-review-pool";
@@ -29,7 +29,7 @@ import { CourseNodeForm, CourseNodeEditor, NodeAttachments, type CourseNode } fr
 import type { NodeAttachment } from "@/lib/course-node-attachments";
 import WebsiteCollection, { CollectionForm } from "./ToolCollections";
 import { toolCollectionFields, type ToolCollectionFields } from "@/lib/tool-collections";
-import { createInitialFinanceState, createPreviewFinanceState, normalizeFinanceState, type FinanceState } from "@/lib/finance";
+import { createInitialFinanceState, createPreviewFinanceState, localTimeKey, normalizeFinanceState, type FinanceState } from "@/lib/finance";
 import { advanceWorkForDate, cancelWorkForDate, courseNodeVisibleToday, defaultTaskPlannedDate, isPreparationEventTask, isTaskNode, newTaskPlannedDate, planTaskForDate, taskAwaitingStart, taskCompletionDate, taskDeadlineLabel, taskModeOf, taskOverlapsRange, taskProgressOf, taskScheduleSummary, taskScheduledForDate, taskStatusOf, taskStatusOptions, taskVisibleToday, withWorkCompletionDates, workDateChangeAllowed, workDateInputMinimum, type TaskMode, type TaskProgressStatus } from "@/lib/task-progress";
 import "./task-scheduling.css";
 import "./task-settings.css";
@@ -1429,13 +1429,21 @@ function TaskDetail({ target, data, setData, access, onOpen, onClose, requestDel
 }
 function TaskOverviewView({ reviewPoolEntry, data, setData, setDialog, openWork, requestDelete, postponeWork, advanceWork, cancelToday, access, readOnly }: { reviewPoolEntry: React.ReactNode; data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; setDialog: (value: DialogConfig) => void; openWork: (target: WorkTarget) => void; requestDelete: (target: WorkTarget, title: string) => void; postponeWork: (target: WorkTarget, days?: number) => void; advanceWork: (target: WorkTarget) => void; cancelToday: (target: WorkTarget) => void; access: EditorAccess; readOnly: boolean }) {
   const [reviewStudy, setReviewStudy] = useState<ReviewStudyDraft | null>(null);
-  const today = dateKey();
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const refresh = () => setNow(new Date());
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, []);
+  const today = dateKey(now);
+  const time = localTimeKey(now);
   const [scope, setScope] = useState<"semester" | "week" | "active" | "done">("semester");
   const [editingTask, setEditingTask] = useState<TaskItem | "new" | null>(null);
   const [editingNode, setEditingNode] = useState<Milestone | null>(null);
   const [eventCourseFilter, setEventCourseFilter] = useState("");
   const [eventAssessmentFilter, setEventAssessmentFilter] = useState("");
-  const end = new Date();
+  const end = new Date(now);
   end.setDate(end.getDate() + 7);
   const weekEnd = dateKey(end);
   const items = [
@@ -1451,12 +1459,14 @@ function TaskOverviewView({ reviewPoolEntry, data, setData, setDialog, openWork,
     ? examReviewTaskSelectedOnDate(item.task, today)
     : taskOverlapsRange(item.task ?? { ...item.node, due: item.due }, today, weekEnd);
   const visible = items.filter((item) => {
-    if (scope === "done") return item.done;
-    if (scope === "active") return !item.done && item.entity === "task" && item.period === "multi";
-    if (scope === "week") return !item.done && (item.requiresCompletion
+    const finished = item.done || Boolean(item.node && scheduleHasElapsed(item.node, today, time));
+    if (scope === "done") return finished;
+    if (finished) return false;
+    if (scope === "active") return item.entity === "task" && item.period === "multi";
+    if (scope === "week") return item.requiresCompletion
       ? withinWeek(item)
-      : item.due >= today && item.due <= weekEnd);
-    return !item.done;
+      : item.due >= today && item.due <= weekEnd;
+    return true;
   });
   const sections = [
     { id: "single", title: "短期任务", items: visible.filter((item) => item.entity === "task" && item.period !== "multi" && !taskAwaitingStart(item.task ?? item.node!, today)) },

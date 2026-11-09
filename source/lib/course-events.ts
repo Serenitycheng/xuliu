@@ -1,4 +1,5 @@
 import { isCourseTitleCandidate } from "./timetable.ts";
+import { isValidLocalDate, isValidLocalTime } from "./finance.ts";
 
 export type AssessmentType = "exam" | "quiz" | "submission" | "presentation" | "paper";
 export type EventDateKind = "occurs" | "deadline";
@@ -12,6 +13,11 @@ type EventLike = CourseEventFields & { courseId?: string; title: string; date: s
 
 export function eventRequiresCompletion(node: Pick<CourseEventFields, "requiresCompletion" | "alsoTask"> & { courseId?: string }): boolean {
   return Boolean(node.courseId) || node.alsoTask === true || node.requiresCompletion !== false;
+}
+
+export function scheduleHasElapsed(node: Pick<EventLike, "date" | "time" | "requiresCompletion" | "alsoTask" | "courseId">, today: string, time: string): boolean {
+  if (eventRequiresCompletion(node) || !isValidLocalDate(node.date)) return false;
+  return node.date < today || (node.date === today && isValidLocalTime(node.time) && node.time <= time);
 }
 
 /** Apply only to new events; an absent stored flag preserves the legacy behavior. */
