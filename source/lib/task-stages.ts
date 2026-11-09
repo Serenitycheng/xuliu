@@ -10,12 +10,14 @@ export function withPlannedTaskStages<T extends StageState>(next: T, date: strin
   let tasks = next.tasks;
   let milestones = next.milestones;
   const poolSources = reviewPoolSourceKeys(next);
+  const examTaskIds = new Set(next.tasks.filter((task) => task.examEventId).map((task) => task.id));
   const linkedTo = (task: StageState["tasks"][number], kind: "task" | "milestone", id: string) => kind === "task" ? task.parentId === id : task.parentMilestoneId === id;
 
   for (const oldStage of previous?.tasks ?? []) {
-    if (taskModeOf(oldStage) !== "single" || taskStatusOf(oldStage) === "已完成") continue;
+    if (oldStage.examEventId || taskModeOf(oldStage) !== "single" || taskStatusOf(oldStage) === "已完成") continue;
     const kind = oldStage.parentId ? "task" : "milestone";
     const parentId = oldStage.parentId ?? oldStage.parentMilestoneId;
+    if (kind === "task" && parentId && examTaskIds.has(parentId)) continue;
     if (!parentId || poolSources.has(`task:${oldStage.id}`) || poolSources.has(`${kind}:${parentId}`)) continue;
     const oldParent = (kind === "task" ? previous!.tasks : previous!.milestones).find((item) => item.id === parentId);
     const parent = (kind === "task" ? tasks : milestones).find((item) => item.id === parentId);
@@ -38,9 +40,10 @@ export function withPlannedTaskStages<T extends StageState>(next: T, date: strin
   }
 
   for (const oldStage of previous?.tasks ?? []) {
-    if (!oldStage.id.startsWith(stagePrefix)) continue;
+    if (oldStage.examEventId || !oldStage.id.startsWith(stagePrefix)) continue;
     const kind = oldStage.parentId ? "task" : "milestone";
     const parentId = oldStage.parentId ?? oldStage.parentMilestoneId;
+    if (kind === "task" && parentId && examTaskIds.has(parentId)) continue;
     if (!parentId) continue;
     if (poolSources.has(`task:${oldStage.id}`) || poolSources.has(`${kind}:${parentId}`)) continue;
     const oldParent = (kind === "task" ? previous!.tasks : previous!.milestones).find((item) => item.id === parentId);
@@ -60,7 +63,7 @@ export function withPlannedTaskStages<T extends StageState>(next: T, date: strin
   }
 
   const parents = [
-    ...tasks.filter((task) => taskModeOf(task) === "multi").map((item) => ({ kind: "task" as const, item })),
+    ...tasks.filter((task) => !task.examEventId && taskModeOf(task) === "multi").map((item) => ({ kind: "task" as const, item })),
     ...milestones.filter((node) => node.courseId && node.mode === "multi").map((item) => ({ kind: "milestone" as const, item })),
   ];
   for (const { kind, item } of parents) {

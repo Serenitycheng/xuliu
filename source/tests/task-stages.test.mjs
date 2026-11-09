@@ -17,6 +17,30 @@ const stateFor = (tasks = [parent], milestones = []) => ({ ...createEmptyWorkspa
 let id = 0;
 const createId = () => String(++id);
 
+test('exam review tasks keep their settings without creating or reusing automatic stages', () => {
+  const exam = { ...parent, examEventId: 'exam', examSelectedDate: today };
+  const original = stateFor([exam]);
+  assert.equal(withPlannedTaskStages(original, today, () => { throw new Error('must not generate exam stages'); }), original);
+  const legacy = { id: 'stage:exam', title: '旧复习阶段', parentId: exam.id, area: exam.area, source: exam.title, mode: 'single', done: false, today: false, elapsed: 20, requirements: '保留旧内容', attachments: [] };
+  const withLegacy = stateFor([exam, legacy]);
+  assert.equal(withPlannedTaskStages(withLegacy, today, createId), withLegacy);
+  assert.equal(withLegacy.tasks[1], legacy);
+});
+
+test('legacy exam stages are retained and no longer synchronize parent plans or cancellations', () => {
+  const exam = { ...parent, examEventId: 'exam' };
+  const legacy = { id: 'stage:exam', title: '旧复习阶段', parentId: exam.id, area: exam.area, source: exam.title, plannedDate: today, mode: 'single', done: false, today: true, elapsed: 20, requirements: '原阶段记录', attachments: [] };
+  const original = stateFor([exam, legacy]);
+  const parentReplanned = stateFor([{ ...exam, plannedDate: tomorrow, dismissedTodayDate: today, examSelectedDate: today }, legacy]);
+  assert.equal(withPlannedTaskStages(parentReplanned, today, createId, original), parentReplanned);
+  const childReplanned = stateFor([exam, { ...legacy, plannedDate: tomorrow, dismissedTodayDate: today }]);
+  assert.equal(withPlannedTaskStages(childReplanned, today, createId, original), childReplanned);
+  const childRemoved = stateFor([exam]);
+  assert.equal(withPlannedTaskStages(childRemoved, today, createId, original), childRemoved);
+  assert.equal(original.tasks[1], legacy);
+  assert.deepEqual(workspaceStateSchema.parse(JSON.parse(JSON.stringify(parentReplanned))), parentReplanned);
+});
+
 test('planning a long task creates a linked short stage without changing the parent or its deadline', () => {
   const original = stateFor();
   const result = withPlannedTaskStages(original, today, createId);

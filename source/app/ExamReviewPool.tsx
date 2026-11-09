@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { examReviewSummary, isExamReviewCandidate, isExamReviewEvent, type ExamReviewData, type ExamReviewEvent } from "@/lib/exam-review-pool";
-import { defaultTaskPlannedDate, taskDeadlineLabel, taskModeOf, taskProgressOf, taskStatusOf, taskVisibleToday, type TaskScheduleLike } from "@/lib/task-progress";
+import { examReviewSummary, examReviewTaskSelectedOnDate, isExamReviewCandidate, isExamReviewEvent, type ExamReviewData, type ExamReviewEvent } from "@/lib/exam-review-pool";
+import { defaultTaskPlannedDate, taskCompletionDate, taskDeadlineLabel, taskModeOf, taskProgressOf, taskStatusOf, type TaskScheduleLike } from "@/lib/task-progress";
 import "./course-review-pool.css";
 import "./exam-review-pool.css";
 
-export type ExamReviewTask = TaskScheduleLike & { id: string; title: string; done: boolean; examEventId?: string };
+export type ExamReviewTask = TaskScheduleLike & { id: string; title: string; done: boolean; examEventId?: string; examSelectedDate?: string };
 
 type ExamReviewTaskActions = {
   onCreateTask: (eventId: string) => void;
@@ -32,12 +32,13 @@ const dateOf = (event: ExamReviewEvent) => event.date ? `${event.date}${event.ti
 
 function poolSummary(event: ExamReviewEvent, tasks: ExamReviewTask[], today: string) {
   const legacy = examReviewSummary(event, today);
-  const todayTasks = tasks.filter((task) => taskVisibleToday(task, today));
+  const completedToday = (task: ExamReviewTask) => taskStatusOf(task) === "已完成" && taskCompletionDate(task) === today;
+  const todayTasks = tasks.filter((task) => completedToday(task) || examReviewTaskSelectedOnDate(task, today) && taskStatusOf(task) !== "已完成");
   return {
     total: tasks.length + legacy.total,
     completed: tasks.filter((task) => taskStatusOf(task) === "已完成").length + legacy.completed,
     todayTotal: todayTasks.length + legacy.todayTotal,
-    todayCompleted: todayTasks.filter((task) => taskStatusOf(task) === "已完成").length + legacy.todayCompleted,
+    todayCompleted: todayTasks.filter(completedToday).length + legacy.todayCompleted,
   };
 }
 
@@ -54,7 +55,7 @@ function ExamReviewTasks({ event, tasks, today, readOnly, onCreateTask, onEditTa
       <button type="button" className="textButton" disabled={readOnly} onClick={() => onCreateTask(event.id)}>＋ 复习任务</button></div>
     {tasks.length > 0 && <ul>{tasks.map((task) => {
       const done = taskStatusOf(task) === "已完成";
-      const plannedToday = taskVisibleToday(task, today);
+      const selectedToday = examReviewTaskSelectedOnDate(task, today);
       const plannedDate = defaultTaskPlannedDate(task);
       const multi = taskModeOf(task) === "multi";
       const schedule = [multi ? "长期任务" : "短期任务", multi && !done ? `${taskStatusOf(task)} · ${taskProgressOf(task)}%` : "", plannedDate ? `${plannedDate} 推进` : "", task.due ? `截止 ${taskDeadlineLabel(task)}` : "未设截止"].filter(Boolean).join(" · ");
@@ -63,9 +64,9 @@ function ExamReviewTasks({ event, tasks, today, readOnly, onCreateTask, onEditTa
           aria-label={`${done ? "重新打开复习任务" : "完成复习任务"}：${event.title} · ${task.title}`} disabled={readOnly}
           onClick={() => onToggleTask(task.id)}>{done ? "✓" : ""}</button>
         <div className="reviewPoolStepTitle examReviewTaskText"><button type="button" className={`taskTitleButton${done ? " reviewPoolStepDone" : ""}`} onClick={() => onEditTask(task.id)}>{task.title}</button><span className="examReviewTaskMeta">{schedule}</span></div>
-        {!done && <button type="button" className="textButton reviewPoolStepChoose" disabled={readOnly}
-          aria-label={`${plannedToday ? "取消今天复习" : "今天复习"}：${event.title} · ${task.title}`}
-          onClick={() => plannedToday ? onCancelToday(task.id) : onPlanToday(task.id)}>{plannedToday ? "取消今天" : "今天做"}</button>}
+        {(selectedToday || !done) && <button type="button" className="textButton reviewPoolStepChoose" disabled={readOnly}
+          aria-label={`${selectedToday ? "取消今天复习" : "今天复习"}：${event.title} · ${task.title}`}
+          onClick={() => selectedToday ? onCancelToday(task.id) : onPlanToday(task.id)}>{selectedToday ? "取消今天" : "今天做"}</button>}
         <button type="button" className="reviewPoolStepEdit" disabled={readOnly} aria-label={`修改复习任务：${task.title}`} onClick={() => onEditTask(task.id)}>修改</button>
         <button type="button" className="reviewPoolStepRemove" disabled={readOnly} aria-label={`删除复习任务：${task.title}`} onClick={() => onDeleteTask(task.id)}>删除</button>
       </li>;

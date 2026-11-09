@@ -13,9 +13,49 @@ export type ExamReviewEvent = {
 export type ExamReviewTask = {
   id: string; title: string; done: boolean; area: ExamReviewEvent["area"];
   source: string; today: boolean; elapsed: number;
-  examEventId?: string; courseId?: string; mode?: "single" | "multi";
+  examEventId?: string; examSelectedDate?: string; courseId?: string; mode?: "single" | "multi";
   plannedDate?: string; completedDate?: string; showOnCalendar?: boolean;
 };
+
+type ExamReviewSelection = Pick<ExamReviewTask, "examEventId" | "examSelectedDate">;
+type ExamReviewIdentity = Pick<ExamReviewEvent, "id" | "courseId" | "assessmentType">;
+
+export function examReviewTaskSelectedOnDate(task: ExamReviewSelection, date: string): boolean {
+  return !task.examEventId || isValidLocalDate(date) && task.examSelectedDate === date;
+}
+
+export function setExamReviewTaskSelected<T extends ExamReviewSelection>(task: T, date: string | undefined): T {
+  if (date !== undefined && !isValidLocalDate(date)) throw new Error("请选择有效日期");
+  if (!task.examEventId) return task;
+  if (date === undefined) {
+    if (!Object.hasOwn(task, "examSelectedDate")) return task;
+    const { examSelectedDate: _examSelectedDate, ...rest } = task;
+    return rest as T;
+  }
+  return task.examSelectedDate === date ? task : { ...task, examSelectedDate: date };
+}
+
+export function isLinkedExamReviewTask(task: Pick<ExamReviewTask, "examEventId">, milestones: ExamReviewIdentity[]): boolean {
+  return Boolean(task.examEventId && milestones.some((event) => event.id === task.examEventId && isExamReviewCandidate(event)));
+}
+
+/** List projection only: keep all stored tasks and their history in the source state. */
+export function withoutUnselectedExamReviewTasks<S extends { tasks: (ExamReviewSelection & { id: string; parentId?: string })[]; milestones: ExamReviewIdentity[] }>(state: S, date: string): S {
+  const examIds = new Set(state.milestones.filter(isExamReviewCandidate).map((event) => event.id));
+  const linkedTaskIds = new Set(state.tasks.filter((task) => task.examEventId && examIds.has(task.examEventId)).map((task) => task.id));
+  const hiddenStageIds = new Set<string>();
+  // Include legacy generated descendants, but do not hide ordinary manual children.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const task of state.tasks) {
+      if (!task.id.startsWith("stage:") || !task.parentId || hiddenStageIds.has(task.id)) continue;
+      if (linkedTaskIds.has(task.parentId) || hiddenStageIds.has(task.parentId)) { hiddenStageIds.add(task.id); changed = true; }
+    }
+  }
+  const tasks = state.tasks.filter((task) => !hiddenStageIds.has(task.id) && (!linkedTaskIds.has(task.id) || examReviewTaskSelectedOnDate(task, date)));
+  return tasks.length === state.tasks.length ? state : { ...state, tasks };
+}
 
 /** Move legacy steps once; an ordinary task is then the only editable record. */
 export function migrateExamReviewTasks<S extends { tasks: ExamReviewTask[]; milestones: ExamReviewEvent[] }>(state: S): S {
@@ -41,7 +81,7 @@ export function migrateExamReviewTasks<S extends { tasks: ExamReviewTask[]; mile
         id: taskId, title: step.title, done: step.done, area: event.area, source: event.title,
         examEventId: event.id, ...(courseId ? { courseId } : {}),
         mode: "single", today: false, elapsed: 0, showOnCalendar: false,
-        ...(step.selectedDate !== undefined ? { plannedDate: step.selectedDate } : {}),
+        ...(step.selectedDate !== undefined ? { plannedDate: step.selectedDate, examSelectedDate: step.selectedDate } : {}),
         ...(step.completedDate !== undefined ? { completedDate: step.completedDate } : {}),
       });
     }

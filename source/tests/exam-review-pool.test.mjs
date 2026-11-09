@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { examReviewSummary, examReviewTodayCounts, isExamReviewCandidate, isExamReviewEvent, migrateExamReviewTasks, setExamReviewExcluded, updateExamReview } from '../lib/exam-review-pool.ts';
+import { examReviewSummary, examReviewTodayCounts, examReviewTaskSelectedOnDate, isExamReviewCandidate, isExamReviewEvent, isLinkedExamReviewTask, migrateExamReviewTasks, setExamReviewExcluded, setExamReviewTaskSelected, updateExamReview, withoutUnselectedExamReviewTasks } from '../lib/exam-review-pool.ts';
 import { createReviewPoolStep, editReviewPoolStep, reviewPoolReadProjection, withoutReviewPoolSources } from '../lib/course-review-pool.ts';
 import { aiCourseContextFromWorkspace } from '../lib/ai-course-context.ts';
 import { createEmptyWorkspaceState, workspaceStateSchema } from '../lib/workspace-state-schema.ts';
@@ -226,8 +226,8 @@ test('旧复习任务无损转为普通任务，保留考试与课程关联且�
   const before = JSON.stringify(state);
   const migrated = migrateExamReviewTasks(state);
   assert.deepEqual(migrated.tasks.slice(1), [
-    { id: 'step-1', title: '第一章复习', done: false, area: '课内', source: node.title, examEventId: node.id, courseId: 'course-1', mode: 'single', today: false, elapsed: 0, showOnCalendar: false, plannedDate: today },
-    { id: 'step-2', title: '第二章已完成', done: true, area: '课内', source: node.title, examEventId: node.id, courseId: 'course-1', mode: 'single', today: false, elapsed: 0, showOnCalendar: false, plannedDate: '2026-10-30', completedDate: '2026-10-31' },
+    { id: 'step-1', title: '第一章复习', done: false, area: '课内', source: node.title, examEventId: node.id, courseId: 'course-1', mode: 'single', today: false, elapsed: 0, showOnCalendar: false, plannedDate: today, examSelectedDate: today },
+    { id: 'step-2', title: '第二章已完成', done: true, area: '课内', source: node.title, examEventId: node.id, courseId: 'course-1', mode: 'single', today: false, elapsed: 0, showOnCalendar: false, plannedDate: '2026-10-30', examSelectedDate: '2026-10-30', completedDate: '2026-10-31' },
   ]);
   assert.equal(migrated.tasks[0], originalTask);
   assert.deepEqual(migrated.milestones[0], { ...node, examReview: { ...node.examReview, steps: [] } });
@@ -288,6 +288,7 @@ test('迁移保留旧计划及完成日期，不推算截止、补造完成日�
   ] } }));
   const migrated = migrateExamReviewTasks(state);
   assert.deepEqual(migrated.tasks.map((task) => task.plannedDate), [undefined, tomorrow, '2026-10-30', undefined, undefined]);
+  assert.deepEqual(migrated.tasks.map((task) => task.examSelectedDate), [undefined, tomorrow, '2026-10-30', undefined, undefined]);
   assert.deepEqual(migrated.tasks.map((task) => task.completedDate), [undefined, undefined, undefined, undefined, today]);
   assert.deepEqual(migrated.tasks.map((task) => taskVisibleToday(task, today)), [false, false, false, false, true]);
   assert.ok(migrated.tasks.every((task) => task.due === undefined && task.today === false && task.showOnCalendar === false));
@@ -336,4 +337,97 @@ test('普通考试复习任务通过保存导出及AI投影，孤立考试引用
   for (const examEventId of ['', 'x'.repeat(121), 123, null]) {
     assert.equal(workspaceStateSchema.safeParse({ ...saved, tasks: [{ ...saved.tasks[0], examEventId }] }).success, false);
   }
+});
+
+test('考试复习仅由当天显式选择决定，计划、截止、今日标记和完成均不代替选择', () => {
+  const task = ordinaryTask('review', { examEventId: 'exam-1', plannedDate: today, due: today, today: true, done: true, completedDate: today });
+  assert.equal(examReviewTaskSelectedOnDate(task, today), false);
+  assert.equal(examReviewTaskSelectedOnDate({ ...task, examSelectedDate: today }, today), true);
+  assert.equal(examReviewTaskSelectedOnDate({ ...task, examSelectedDate: today }, tomorrow), false);
+  assert.equal(examReviewTaskSelectedOnDate({ ...task, examSelectedDate: tomorrow }, today), false);
+  assert.equal(examReviewTaskSelectedOnDate({ ...task, plannedDate: tomorrow, examSelectedDate: today }, today), true);
+  assert.equal(examReviewTaskSelectedOnDate({ ...task, examSelectedDate: '2026-02-30' }, '2026-02-30'), false);
+  assert.equal(examReviewTaskSelectedOnDate(ordinaryTask('ordinary'), today), true);
+});
+
+test('选择和取消考试复习只增删选择日期，保留计划、完成、进度及附件且重复操作幂等', () => {
+  const original = ordinaryTask('review', { examEventId: 'exam-1', mode: 'multi', plannedDate: tomorrow, due: '2026-11-17', done: true, completedDate: today, progressedDates: [today], dismissedTodayDate: today, requirements: '原要求', attachments: [], blocks: [] });
+  const before = JSON.stringify(original);
+  const selected = setExamReviewTaskSelected(original, today);
+  assert.deepEqual(selected, { ...original, examSelectedDate: today });
+  assert.equal(selected.attachments, original.attachments);
+  assert.equal(selected.blocks, original.blocks);
+  assert.equal(setExamReviewTaskSelected(selected, today), selected);
+  const cancelled = setExamReviewTaskSelected(selected, undefined);
+  assert.deepEqual(cancelled, original);
+  assert.equal(Object.hasOwn(cancelled, 'examSelectedDate'), false);
+  assert.equal(setExamReviewTaskSelected(cancelled, undefined), cancelled);
+  const ordinary = ordinaryTask('ordinary');
+  assert.equal(setExamReviewTaskSelected(ordinary, today), ordinary);
+  assert.equal(JSON.stringify(original), before);
+  for (const invalid of ['', '2026-02-30', '2026-11-03T00:00:00Z', null, 1]) assert.throws(() => setExamReviewTaskSelected(original, invalid));
+});
+
+test('考试任务列表按显式选择过滤，保留普通任务及无法再从考试池找回的任务', () => {
+  const milestones = [event(), event({ id: 'ended', done: true }), event({ id: 'excluded', examReview: { note: '', steps: [], excluded: true } }), event({ id: 'changed', assessmentType: 'paper' })];
+  const tasks = [
+    ordinaryTask('ordinary'),
+    ordinaryTask('not-selected', { examEventId: 'exam-1', plannedDate: today }),
+    ordinaryTask('selected', { examEventId: 'exam-1', examSelectedDate: today, plannedDate: tomorrow }),
+    ordinaryTask('selected-completed', { examEventId: 'exam-1', examSelectedDate: today, done: true, completedDate: today }),
+    ordinaryTask('completed-only', { examEventId: 'exam-1', done: true, completedDate: today }),
+    ordinaryTask('ended-task', { examEventId: 'ended', plannedDate: today }),
+    ordinaryTask('excluded-task', { examEventId: 'excluded', plannedDate: today }),
+    ordinaryTask('orphan', { examEventId: 'deleted-exam', plannedDate: today }),
+    ordinaryTask('type-changed', { examEventId: 'changed', plannedDate: today }),
+  ];
+  const state = { ...createEmptyWorkspaceState(), milestones, tasks };
+  const before = JSON.stringify(state);
+  const projected = withoutUnselectedExamReviewTasks(state, today);
+  assert.deepEqual(projected.tasks.map((task) => task.id), ['ordinary', 'selected', 'selected-completed', 'orphan', 'type-changed']);
+  assert.deepEqual(withoutUnselectedExamReviewTasks(state, tomorrow).tasks.map((task) => task.id), ['ordinary', 'orphan', 'type-changed']);
+  assert.equal(projected.milestones, milestones);
+  assert.equal(projected.finance, state.finance);
+  assert.equal(projected.tasks[1], tasks[2]);
+  assert.equal(isLinkedExamReviewTask(tasks[5], milestones), true);
+  assert.equal(isLinkedExamReviewTask(tasks[6], milestones), true);
+  assert.equal(isLinkedExamReviewTask(tasks[7], milestones), false);
+  assert.equal(isLinkedExamReviewTask(tasks[8], milestones), false);
+  assert.equal(isLinkedExamReviewTask(tasks[0], milestones), false);
+  assert.equal(JSON.stringify(state), before);
+  assert.equal(withoutUnselectedExamReviewTasks(projected, today), projected);
+});
+
+test('考试复习的旧生成阶段只从列表隐藏，手动子任务及原始历史保持不变', () => {
+  const tasks = [
+    ordinaryTask('review', { examEventId: 'exam-1', examSelectedDate: today }),
+    ordinaryTask('stage:nested', { parentId: 'stage:legacy' }),
+    ordinaryTask('stage:legacy', { parentId: 'review', done: true, completedDate: today, requirements: '旧阶段内容', attachments: [] }),
+    ordinaryTask('manual-child', { parentId: 'review' }),
+    ordinaryTask('stage:ordinary', { parentId: 'ordinary-parent' }),
+    ordinaryTask('ordinary-parent'),
+  ];
+  const state = { ...stateWith(event()), tasks };
+  const before = JSON.stringify(state);
+  const projected = withoutUnselectedExamReviewTasks(state, today);
+  assert.deepEqual(projected.tasks.map((task) => task.id), ['review', 'manual-child', 'stage:ordinary', 'ordinary-parent']);
+  assert.equal(JSON.stringify(state), before);
+  assert.equal(state.tasks[2].requirements, '旧阶段内容');
+});
+
+test('已升级任务不从推进日推断选择，未升级步骤则保留原选择日期并通过严格保存合同', () => {
+  const upgraded = ordinaryTask('upgraded', { examEventId: 'exam-1', plannedDate: today });
+  const state = { ...stateWith(event({ examReview: { note: '原备注', steps: [{ id: 'legacy', title: '原显式选择', done: false, selectedDate: today }] } })), tasks: [upgraded] };
+  const migrated = migrateExamReviewTasks(state);
+  assert.equal(migrated.tasks[0], upgraded);
+  assert.equal(migrated.tasks[0].examSelectedDate, undefined);
+  assert.equal(migrated.tasks[1].examSelectedDate, today);
+  assert.equal(migrated.tasks[1].plannedDate, today);
+  assert.deepEqual(withoutUnselectedExamReviewTasks(migrated, today).tasks.map((task) => task.id), ['legacy']);
+  assert.deepEqual(workspaceStateSchema.parse(JSON.parse(JSON.stringify(migrated))), migrated);
+  for (const examSelectedDate of ['', '2026-02-30', '2026-11-03T00:00:00Z', 123, null]) {
+    assert.equal(workspaceStateSchema.safeParse({ ...migrated, tasks: [{ ...upgraded, examSelectedDate }] }).success, false);
+  }
+  const leapDay = { ...migrated, tasks: [{ ...upgraded, examSelectedDate: '2028-02-29' }] };
+  assert.deepEqual(workspaceStateSchema.parse(leapDay), leapDay);
 });

@@ -6,7 +6,7 @@ import { useBackgroundAccent } from "./BackgroundAppearance";
 import { AppearanceMenu } from "./ThemePicker";
 import { WorkAdvanceButton, WorkAdvanceDialog, WorkProgressBadge } from "./WorkAdvance";
 import { ExamReviewPoolDialog, ExamReviewPoolEntry } from "./ExamReviewPool";
-import { isExamReviewCandidate, isExamReviewEvent, migrateExamReviewTasks, setExamReviewExcluded, updateExamReview } from "@/lib/exam-review-pool";
+import { examReviewTaskSelectedOnDate, isExamReviewCandidate, isExamReviewEvent, isLinkedExamReviewTask, migrateExamReviewTasks, setExamReviewExcluded, setExamReviewTaskSelected, updateExamReview, withoutUnselectedExamReviewTasks } from "@/lib/exam-review-pool";
 import { normalizedHabit, toggledHabit } from "@/lib/habit-streak";
 import { CourseEventDialog } from "./CourseEventDialog";
 import { assessmentTypeLabel, assessmentTypeOptions, eventCourseChoices, eventCourseLabel, eventDateLabel, eventRequiresCompletion, migrateCourseEvents } from "@/lib/course-events";
@@ -30,7 +30,7 @@ import type { NodeAttachment } from "@/lib/course-node-attachments";
 import WebsiteCollection, { CollectionForm } from "./ToolCollections";
 import { toolCollectionFields, type ToolCollectionFields } from "@/lib/tool-collections";
 import { createInitialFinanceState, createPreviewFinanceState, normalizeFinanceState, type FinanceState } from "@/lib/finance";
-import { advanceWorkForDate, cancelWorkForDate, courseNodeVisibleToday, defaultTaskPlannedDate, isPreparationEventTask, isTaskNode, newTaskPlannedDate, planTaskForDate, taskAwaitingStart, taskDeadlineLabel, taskModeOf, taskOverlapsRange, taskProgressOf, taskScheduleSummary, taskScheduledForDate, taskStatusOf, taskStatusOptions, taskVisibleToday, withWorkCompletionDates, workDateChangeAllowed, workDateInputMinimum, type TaskMode, type TaskProgressStatus } from "@/lib/task-progress";
+import { advanceWorkForDate, cancelWorkForDate, courseNodeVisibleToday, defaultTaskPlannedDate, isPreparationEventTask, isTaskNode, newTaskPlannedDate, planTaskForDate, taskAwaitingStart, taskCompletionDate, taskDeadlineLabel, taskModeOf, taskOverlapsRange, taskProgressOf, taskScheduleSummary, taskScheduledForDate, taskStatusOf, taskStatusOptions, taskVisibleToday, withWorkCompletionDates, workDateChangeAllowed, workDateInputMinimum, type TaskMode, type TaskProgressStatus } from "@/lib/task-progress";
 import "./task-scheduling.css";
 import "./task-settings.css";
 import "./calendar-navigation.css";
@@ -92,7 +92,7 @@ export type Block = {
 type Milestone = CourseNode;
 type ReviewStudyDraft = { node: Milestone; edited?: boolean };
 type TaskProgressLog = { id: string; date: string; progress: number; status: TaskProgressStatus; note: string };
-type TaskItem = { parentId?: string; parentMilestoneId?: string; examEventId?: string; courseId?: string; requirements?: string; attachments?: NodeAttachment[]; parentCandidate?: boolean; blocks?: Block[]; id: string; title: string; area: Area; source: string; due?: string; dueTime?: string; plannedDate?: string; progressedDates?: string[]; showOnCalendar?: boolean; dismissedTodayDate?: string; completedDate?: string; done: boolean; today: boolean; elapsed: number; mode?: TaskMode; startDate?: string; status?: TaskProgressStatus; progress?: number; progressLogs?: TaskProgressLog[] };
+type TaskItem = { parentId?: string; parentMilestoneId?: string; examEventId?: string; examSelectedDate?: string; courseId?: string; requirements?: string; attachments?: NodeAttachment[]; parentCandidate?: boolean; blocks?: Block[]; id: string; title: string; area: Area; source: string; due?: string; dueTime?: string; plannedDate?: string; progressedDates?: string[]; showOnCalendar?: boolean; dismissedTodayDate?: string; completedDate?: string; done: boolean; today: boolean; elapsed: number; mode?: TaskMode; startDate?: string; status?: TaskProgressStatus; progress?: number; progressLogs?: TaskProgressLog[] };
 type PageNode = { id: string; space: "thoughts" | "free"; parentId: string | null; title: string; kind: "folder" | "page"; blocks: Block[] };
 type CourseSlot = { id: string; weekday: number; start: string; end: string; location: string; weeks?: string; source?: "manual" | "pku" | "bit" | "ics" };
 type AcademicImportPreset = "pku" | "bit";
@@ -749,6 +749,7 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
   const navigate = (id: NavId) => { setActive(id); setDetail(null); setWorkDetail(null); setMobileNav(false); setReviewPoolOpen(null); setExamPoolOpen(null); setExamEventDraft(null); setExamTaskDraft(null); };
   const daily = data.daily[today] ?? { note: "", gain: "", problem: "", feeling: "", tomorrow: "" };
   const displayedData = withoutReviewPoolSources(data);
+  const taskListData = withoutUnselectedExamReviewTasks(displayedData, reviewDate);
   const changeReviewItem = (id: string, patch: Partial<Pick<ReviewPoolItem, "course" | "chapter" | "progress" | "note" | "done" | "selectedDate" | "steps">>) => {
     setData((current) => updateReviewPoolItem(current, id, patch, dateKey()));
   };
@@ -758,7 +759,9 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
   };
   const reviewToday = <ReviewPoolToday items={data.reviewPool?.items ?? []} today={reviewDate} readOnly={readOnly} onChange={changeReviewItem} onOpenItem={setReviewPoolOpen} />;
   const reviewEntry = <div className="reviewPoolEntries">{data.reviewPool && <ReviewPoolEntry onOpen={() => setReviewPoolOpen("")} />}<ExamReviewPoolEntry onOpen={() => setExamPoolOpen("")} /></div>;
-  const todayTasks = displayedData.tasks.filter((task) => taskVisibleToday(task, reviewDate));
+  const todayTasks = taskListData.tasks.filter((task) => isLinkedExamReviewTask(task, data.milestones)
+    ? !task.done || taskCompletionDate(task) === reviewDate
+    : taskVisibleToday(task, reviewDate));
   const todayCourseNodes = displayedData.milestones.filter((node) => eventRequiresCompletion(node)
     ? studyTaskVisibleOnDate(node, reviewDate)
     : node.date === reviewDate);
@@ -808,7 +811,11 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
   };
   const postponeWork = useCallback((target: WorkTarget, days = 1) => {
     setData((current) => target.kind === "task"
-      ? { ...current, tasks: current.tasks.map((entry) => entry.id === target.id ? postponeTask(entry, days) : entry) }
+      ? { ...current, tasks: current.tasks.map((entry) => {
+        if (entry.id !== target.id) return entry;
+        const postponed = postponeTask(entry, days);
+        return isLinkedExamReviewTask(entry, current.milestones) ? setExamReviewTaskSelected(postponed, undefined) : postponed;
+      }) }
       : { ...current, milestones: current.milestones.map((entry) => {
         if (entry.id !== target.id) return entry;
         if (entry.alsoTask) { const currentDate = dateKey(); const planned = defaultTaskPlannedDate(entry); return planTaskForDate(entry, addDays(planned && planned > currentDate ? planned : currentDate, days)); }
@@ -821,7 +828,10 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
     if (readOnly) return;
     const date = dateKey();
     setData((current) => target.kind === "task"
-      ? { ...current, tasks: current.tasks.map((entry) => entry.id === target.id ? cancelWorkForDate(entry, date) : entry) }
+      ? { ...current, tasks: current.tasks.map((entry) => {
+        if (entry.id !== target.id) return entry;
+        return isLinkedExamReviewTask(entry, current.milestones) ? setExamReviewTaskSelected(entry, undefined) : cancelWorkForDate(entry, date);
+      }) }
       : { ...current, milestones: current.milestones.map((entry) => entry.id === target.id && isTaskNode(entry) ? cancelWorkForDate(entry, date) : entry) });
   }, [readOnly, setData]);
   const insertAiCourseNote = useCallback(({ courseId, question, answer }: { courseId: string; question: string; answer: string }) => {
@@ -851,7 +861,7 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
   const advancingItem = advancingWork?.kind === "task" ? data.tasks.find((entry) => entry.id === advancingWork.id) : data.milestones.find((entry) => entry.id === advancingWork?.id);
   return <div className={"shell design-" + designMode} style={{ "--accent": interfaceColor } as React.CSSProperties}>
     <aside className={`sidebar ${mobileNav ? "open" : ""}`}><button className="brand" onClick={() => navigate("today")}><span className="brandMark">序</span><span>序流</span></button><DailyYiyan /><div className="navGroup">{navItems.slice(0, 5).map((item) => <NavButton key={item.id} {...item} active={active} onClick={navigate} />)}</div><div className="navCaption">我的空间</div><div className="navGroup">{navItems.slice(5).map((item) => <NavButton key={item.id} {...item} active={active} onClick={navigate} />)}</div><button className="exportButton" onClick={exportData}>导出数据备份</button><button className="refreshButton" disabled={sync === "saving"} onClick={() => void reloadForUpdate()}>{sync === "saving" ? "保存后可刷新" : "↻ 刷新应用"}</button><a className="changelogLink" href="/changelog" target="_blank" rel="noreferrer">更新日志 ↗</a>{!preview && <button className="logoutButton" onClick={onLogout}>退出登录</button>}<div className="sidebarFoot"><span className={`syncDot ${sync}`} />{sync === "saving" ? "正在保存" : sync === "readonly" ? "正在查看只读空间" : sync === "error" ? "云端连接异常" : sync === "preview" ? "本地预览 · 不会写入云端" : "已保存到云端"}</div></aside>
-    <main className="main">{preview && <div className="readOnlyBanner">本地预览 · 刷新后重置</div>}<header className="mobileHeader"><button className="iconButton" aria-label="打开导航" onClick={() => setMobileNav(true)}>☰</button><strong>序流</strong><div className="mobileHeaderActions"><button className="iconButton refreshIconButton" disabled={sync === "saving"} aria-label="刷新应用" title="刷新应用" onClick={() => void reloadForUpdate()}>↻</button><span className={`syncDot ${sync}`} /></div></header>{updateAvailable && <div className="updateBanner"><span>网站已有新版本，为避免继续使用旧页面，请先刷新。</span><button disabled={sync === "saving"} onClick={() => void reloadForUpdate()}>{sync === "saving" ? "等待保存" : "立即刷新"}</button></div>}{readOnly && <div className="readOnlyBanner">正在查看 <strong>{visibleAccount.displayName}</strong> 的空间 · 只读</div>}{!loaded ? <div className="workspaceLoading">正在载入空间…</div> : <>{workDetail ? <TaskDetail key={`${workspaceOwner}:${workDetail.kind}:${workDetail.id}`} target={workDetail} data={data} setData={setData} access={{ ownerId: workspaceOwner, readOnly, preview }} onOpen={setWorkDetail} onClose={() => setWorkDetail(null)} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} /> : detail ? <DetailRouter target={detail} data={displayedData} setData={setData} back={() => setDetail(null)} openWork={setWorkDetail} setDialog={setDialog} deleteDialog={deleteDialog} access={{ ownerId: workspaceOwner, readOnly, preview }} /> : <>
+    <main className="main">{preview && <div className="readOnlyBanner">本地预览 · 刷新后重置</div>}<header className="mobileHeader"><button className="iconButton" aria-label="打开导航" onClick={() => setMobileNav(true)}>☰</button><strong>序流</strong><div className="mobileHeaderActions"><button className="iconButton refreshIconButton" disabled={sync === "saving"} aria-label="刷新应用" title="刷新应用" onClick={() => void reloadForUpdate()}>↻</button><span className={`syncDot ${sync}`} /></div></header>{updateAvailable && <div className="updateBanner"><span>网站已有新版本，为避免继续使用旧页面，请先刷新。</span><button disabled={sync === "saving"} onClick={() => void reloadForUpdate()}>{sync === "saving" ? "等待保存" : "立即刷新"}</button></div>}{readOnly && <div className="readOnlyBanner">正在查看 <strong>{visibleAccount.displayName}</strong> 的空间 · 只读</div>}{!loaded ? <div className="workspaceLoading">正在载入空间…</div> : <>{workDetail ? <TaskDetail key={`${workspaceOwner}:${workDetail.kind}:${workDetail.id}`} target={workDetail} data={data} setData={setData} access={{ ownerId: workspaceOwner, readOnly, preview }} onOpen={setWorkDetail} onClose={() => setWorkDetail(null)} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} /> : detail ? <DetailRouter target={detail} data={taskListData} setData={setData} back={() => setDetail(null)} openWork={setWorkDetail} setDialog={setDialog} deleteDialog={deleteDialog} access={{ ownerId: workspaceOwner, readOnly, preview }} /> : <>
       {active === "today" && <TodayView onOpenExamPool={() => setExamPoolOpen("")} onOpenReviewPool={data.reviewPool ? () => setReviewPoolOpen("") : undefined} appearanceControls={<AppearanceMenu color={interfaceColor} presets={themePresets} designMode={designMode} onDesignChange={chooseDesignMode} onChange={chooseInterfaceColor} />} reviewToday={reviewToday} data={displayedData} setData={setData} tasks={todayTasks} milestones={todayCourseNodes} daily={daily} updateDaily={updateDaily} focusPanel={focusPanel} resetStudyPlan={resetStudyPlan} openWork={setWorkDetail} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} access={{ ownerId: workspaceOwner, readOnly, preview }} readOnly={readOnly} setPopup={setPopup} setDialog={setDialog} />}
       {active === "timetable" && <TimetableViewV2 data={data} setData={setData} setDialog={setDialog} openCourse={(id) => setDetail({ type: "course", id })} deleteDialog={deleteDialog} dualSchool={workspaceOwner === "owner"} readOnly={readOnly} />}
       {active === "tasks" && <TaskOverviewView reviewPoolEntry={reviewEntry} data={displayedData} setData={setData} setDialog={setDialog} openWork={setWorkDetail} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} access={{ ownerId: workspaceOwner, readOnly, preview }} readOnly={readOnly} />}
@@ -887,7 +897,11 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
       }}
       onEditTask={openExamTask}
       onToggleTask={(id) => setData((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id ? withTaskCompletion(task, !task.done, dateKey()) : task) }))}
-      onPlanToday={(id) => setData((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id && !task.done ? planTaskForDate(task, dateKey()) : task) }))}
+      onPlanToday={(id) => setData((current) => ({
+        ...current, tasks: current.tasks.map((task) => task.id === id && !task.done && isLinkedExamReviewTask(task, current.milestones)
+          ? setExamReviewTaskSelected(task, dateKey())
+          : task),
+      }))}
       onCancelToday={(id) => cancelToday({ kind: "task", id })}
       onDeleteTask={(id) => {
         const task = data.tasks.find((item) => item.id === id);
@@ -1000,7 +1014,7 @@ function TodayView({ onOpenReviewPool, onOpenExamPool, appearanceControls, revie
   const [creatingTask, setCreatingTask] = useState(false);
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
   const [editingNode, setEditingNode] = useState<Milestone | null>(null);
-  const deadlines = upcomingDeadlines(data.tasks, data.milestones, dateKey());
+  const deadlines = upcomingDeadlines(withoutUnselectedExamReviewTasks(data, today).tasks, data.milestones, today);
   const [creatingEvent, setCreatingEvent] = useState(false);
   const addEvent = () => setCreatingEvent(true);
   const courseTasks = milestones.filter(isTaskNode);
@@ -1322,7 +1336,7 @@ function TimetableView({ data, setData, setDialog, openCourse, deleteDialog }: {
 }
 
 function preserveTaskContent(current: TaskItem, settings: TaskItem): TaskItem {
-  return { ...settings, elapsed: current.elapsed, blocks: current.blocks };
+  return { ...settings, examSelectedDate: current.examSelectedDate, elapsed: current.elapsed, blocks: current.blocks };
 }
 
 function TaskDetail({ target, data, setData, access, onOpen, onClose, requestDelete, postponeWork, advanceWork, cancelToday }: {
@@ -1342,6 +1356,10 @@ function TaskDetail({ target, data, setData, access, onOpen, onClose, requestDel
   if (!item) return <div className="page"><button className="backButton" onClick={onClose}>← 返回</button><p>这项内容已不存在。</p></div>;
   const isEvent = Boolean(node && !node.courseId);
   const isCourseTask = Boolean(node?.courseId);
+  const currentDate = dateKey();
+  const selectedToday = task && isLinkedExamReviewTask(task, data.milestones)
+    ? examReviewTaskSelectedOnDate(task, currentDate)
+    : task ? taskVisibleToday(task, currentDate) : node && courseNodeVisibleToday(node, currentDate);
   const requiresCompletion = !node || eventRequiresCompletion(node);
   const done = requiresCompletion && item.done;
   const entityLabel = isEvent ? "事项" : "任务";
@@ -1367,7 +1385,7 @@ function TaskDetail({ target, data, setData, access, onOpen, onClose, requestDel
   return <div className="page taskDetailPage">
     <button className="backButton" disabled={nodePending} onClick={onClose}>← 返回列表</button>
     {reviewStudy && !access.readOnly && <StudyReviewDialog request={reviewStudy} data={data} setData={setData} onClose={() => setReviewStudy(null)} onSaved={() => { setReviewStudy(null); onClose(); }} />}
-    <PageHead eyebrow={isEvent ? "事项详情" : isCourseTask ? "课程任务详情" : "任务详情"} title={item.title} subtitle={subtitle} action={<div className="pageHeadActions">{task && <button className="softButton" disabled={access.readOnly} onClick={() => setEditing(task)}>修改任务</button>}{isEvent && <button className="softButton" disabled={access.readOnly || nodePending} onClick={() => setEditingEvent(true)}>修改事项</button>}{!done && (!isEvent || node?.date) && <button className="softButton" disabled={access.readOnly || nodePending} onClick={() => postponeWork(target)}>推迟 1 天</button>}{(!isEvent || node?.alsoTask) && !item.done && (task ? taskVisibleToday(task, dateKey()) : node && courseNodeVisibleToday(node, dateKey())) && <button type="button" className="cancelTodayButton" disabled={access.readOnly} onClick={() => cancelToday(target)}>取消今天</button>}{requiresCompletion && <button className="primaryButton" disabled={access.readOnly} onClick={toggle}>{done ? "重新打开" + entityLabel : "标记" + entityLabel + "完成"}</button>}<details className="taskMoreActions taskDetailMore"><summary>更多</summary><div>{(!isEvent || node?.alsoTask) && <WorkAdvanceButton work={item} date={dateKey()} disabled={access.readOnly || nodePending} onClick={() => advanceWork(target)} />}<button type="button" className="dangerText" disabled={access.readOnly || nodePending} onClick={remove}>删除{entityLabel}</button></div></details></div>} />
+    <PageHead eyebrow={isEvent ? "事项详情" : isCourseTask ? "课程任务详情" : "任务详情"} title={item.title} subtitle={subtitle} action={<div className="pageHeadActions">{task && <button className="softButton" disabled={access.readOnly} onClick={() => setEditing(task)}>修改任务</button>}{isEvent && <button className="softButton" disabled={access.readOnly || nodePending} onClick={() => setEditingEvent(true)}>修改事项</button>}{!done && (!isEvent || node?.date) && <button className="softButton" disabled={access.readOnly || nodePending} onClick={() => postponeWork(target)}>推迟 1 天</button>}{(!isEvent || node?.alsoTask) && !item.done && selectedToday && <button type="button" className="cancelTodayButton" disabled={access.readOnly} onClick={() => cancelToday(target)}>取消今天</button>}{requiresCompletion && <button className="primaryButton" disabled={access.readOnly} onClick={toggle}>{done ? "重新打开" + entityLabel : "标记" + entityLabel + "完成"}</button>}<details className="taskMoreActions taskDetailMore"><summary>更多</summary><div>{(!isEvent || node?.alsoTask) && <WorkAdvanceButton work={item} date={dateKey()} disabled={access.readOnly || nodePending} onClick={() => advanceWork(target)} />}<button type="button" className="dangerText" disabled={access.readOnly || nodePending} onClick={remove}>删除{entityLabel}</button></div></details></div>} />
     {requiresCompletion && <WorkProgressBadge work={item} date={dateKey()} />}
     {parent && <button className="taskParentLink" disabled={nodePending} onClick={() => onOpen(parent)}>属于：{parentTitle ?? "查看关联内容"} →</button>}
     <div className="taskDetailGrid"><div className="stack">
@@ -1394,7 +1412,7 @@ function TaskOverviewView({ reviewPoolEntry, data, setData, setDialog, openWork,
   end.setDate(end.getDate() + 7);
   const weekEnd = dateKey(end);
   const items = [
-    ...data.tasks.map((task) => ({ id: task.id, kind: "task" as const, entity: "task" as const, period: taskModeOf(task), title: task.title, area: task.area, source: task.courseId ? data.courses.find((course) => course.id === task.courseId)?.title ?? task.source : task.source, due: task.due ?? "", requiresCompletion: true, done: task.done, progress: taskProgressOf(task), status: taskStatusOf(task), task, node: undefined })),
+    ...withoutUnselectedExamReviewTasks(data, today).tasks.map((task) => ({ id: task.id, kind: "task" as const, entity: "task" as const, period: taskModeOf(task), title: task.title, area: task.area, source: task.courseId ? data.courses.find((course) => course.id === task.courseId)?.title ?? task.source : task.source, due: task.due ?? "", requiresCompletion: true, done: task.done, progress: taskProgressOf(task), status: taskStatusOf(task), task, node: undefined })),
     ...data.milestones.map((node) => {
       const requiresCompletion = eventRequiresCompletion(node);
       return {
@@ -1402,11 +1420,14 @@ function TaskOverviewView({ reviewPoolEntry, data, setData, setDialog, openWork,
       };
     }),
   ].sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
+  const withinWeek = (item: (typeof items)[number]) => item.task && isLinkedExamReviewTask(item.task, data.milestones)
+    ? examReviewTaskSelectedOnDate(item.task, today)
+    : taskOverlapsRange(item.task ?? { ...item.node, due: item.due }, today, weekEnd);
   const visible = items.filter((item) => {
     if (scope === "done") return item.done;
     if (scope === "active") return !item.done && item.entity === "task" && item.period === "multi";
     if (scope === "week") return !item.done && (item.requiresCompletion
-      ? taskOverlapsRange(item.task ?? { ...item.node, due: item.due }, today, weekEnd)
+      ? withinWeek(item)
       : item.due >= today && item.due <= weekEnd);
     return !item.done;
   });
@@ -1418,7 +1439,7 @@ function TaskOverviewView({ reviewPoolEntry, data, setData, setDialog, openWork,
   ];
   const taskCount = items.filter((item) => item.entity === "task" && !item.done).length;
   const eventCount = items.filter((item) => item.entity === "event" || item.node?.alsoTask).length;
-  const weekCount = items.filter((item) => item.requiresCompletion && !item.done && taskOverlapsRange(item.task ?? { ...item.node, due: item.due }, today, weekEnd)).length;
+  const weekCount = items.filter((item) => item.requiresCompletion && !item.done && withinWeek(item)).length;
   const toggle = (item: (typeof items)[number]) => setData((current) => item.kind === "task"
     ? { ...current, tasks: current.tasks.map((entry) => entry.id === item.id ? withTaskCompletion(entry, !entry.done) : entry) }
     : { ...current, milestones: current.milestones.map((entry) => entry.id === item.id && eventRequiresCompletion(entry) ? { ...entry, done: !entry.done } : entry) });
@@ -1427,7 +1448,12 @@ function TaskOverviewView({ reviewPoolEntry, data, setData, setDialog, openWork,
     if (readOnly || item.done || item.entity !== "task") return;
     const plannedDate = dateKey();
     setData((current) => item.kind === "task"
-      ? { ...current, tasks: current.tasks.map((task) => task.id === item.id ? planTaskForDate(task, plannedDate) : task) }
+      ? { ...current, tasks: current.tasks.map((task) => {
+        if (task.id !== item.id) return task;
+        return isLinkedExamReviewTask(task, current.milestones)
+          ? setExamReviewTaskSelected(task, plannedDate)
+          : planTaskForDate(task, plannedDate);
+      }) }
       : { ...current, milestones: current.milestones.map((node) => node.id === item.id && isTaskNode(node) ? planTaskForDate(node, plannedDate) : node) });
   };
   const [creatingEvent, setCreatingEvent] = useState(false);
@@ -1439,8 +1465,11 @@ function TaskOverviewView({ reviewPoolEntry, data, setData, setDialog, openWork,
     const scheduledItem = item.task ?? item.node!;
     const plannedDate = item.entity === "task" ? defaultTaskPlannedDate(scheduledItem) : item.requiresCompletion ? item.node?.plannedDate : undefined;
     const defaultPlan = plannedDate && item.entity === "task" && !item.node?.automationKey && !item.id.startsWith("stage:") && (!isMulti || isPreparationEventTask(scheduledItem)) && Boolean(item.task?.due || item.node && isTaskNode(item.node) && item.node.date) && (!scheduledItem.plannedDate || scheduledItem.plannedDate === scheduledItem.dismissedTodayDate);
-    const cancelledToday = item.requiresCompletion && scheduledItem.dismissedTodayDate === today;
-    const plannedToday = !cancelledToday && (item.task ? taskVisibleToday(item.task, today) : Boolean(item.node && isTaskNode(item.node) && courseNodeVisibleToday(item.node, today)));
+    const examPoolTask = item.task && isLinkedExamReviewTask(item.task, data.milestones) ? item.task : undefined;
+    const cancelledToday = !examPoolTask && item.requiresCompletion && scheduledItem.dismissedTodayDate === today;
+    const plannedToday = examPoolTask
+      ? examReviewTaskSelectedOnDate(examPoolTask, today)
+      : !cancelledToday && (item.task ? taskVisibleToday(item.task, today) : Boolean(item.node && isTaskNode(item.node) && courseNodeVisibleToday(item.node, today)));
     return <div className={"overviewRow " + (item.done ? "done " : "") + (isMulti ? "multiTask" : "")} key={item.kind + "-" + item.id}>
       {item.requiresCompletion ? <button className="checkButton" disabled={readOnly} aria-pressed={item.done} aria-label={(item.done ? "重新打开" : "完成") + item.title} onClick={() => toggle(item)}>{item.done ? "✓" : ""}</button> : <span aria-hidden="true" />}
       <div className="overviewTaskMain"><div className="overviewTaskTitle"><button className="taskTitleButton" onClick={() => readOnly ? openWork({ kind: item.kind, id: item.id }) : item.task ? setEditingTask(item.task) : setEditingNode(item.node!)}>{item.title}</button><span className={"areaTag " + areaClass[item.area]}>{item.requiresCompletion ? item.area : "日程"}</span>{isMulti && <span className={"taskStatus " + item.status}>{item.status}</span>}</div>{item.requiresCompletion && <WorkProgressBadge work={item.task ?? item.node!} date={dateKey()} />}<span>{item.task?.parentId ? "属于：" + (data.tasks.find((task) => task.id === item.task!.parentId)?.title ?? "上级任务") : item.task?.parentMilestoneId ? "属于：" + (data.milestones.find((node) => node.id === item.task!.parentMilestoneId)?.title ?? "关联对象") : item.source || "未分类"}{item.node?.courseId ? " · 课程任务" : item.node?.assessmentType ? " · " + assessmentTypeLabel(item.node.assessmentType) : ""}</span>{item.task && isMulti && <><div className="taskOverviewProgress"><i><b style={{ width: item.progress + "%" }} /></i><strong>{item.progress}%</strong></div>{latest && <small>{latest.date}{latest.note ? " · " + latest.note : " · 记录为 " + latest.progress + "%"}</small>}</>}</div>
@@ -1731,7 +1760,9 @@ function ReviewView({ data, setData }: { data: AppState; setData: React.Dispatch
   const empty = { note: "", gain: "", problem: "", feeling: "", tomorrow: "" };
   const daily = data.daily[selectedDate] ?? empty;
   const updateDaily = (field: keyof typeof daily, value: string) => setData((current) => ({ ...current, daily: { ...current.daily, [selectedDate]: { ...(current.daily[selectedDate] ?? empty), [field]: value } } }));
-  const dayTasks = data.tasks.filter((task) => taskScheduledForDate(task, selectedDate)); const doneCount = dayTasks.filter((task) => task.done || task.progressLogs?.some((entry) => entry.date === selectedDate && entry.progress === 100)).length;
+  const dayTasks = withoutUnselectedExamReviewTasks(data, selectedDate).tasks.filter((task) =>
+    isLinkedExamReviewTask(task, data.milestones) || taskScheduledForDate(task, selectedDate));
+  const doneCount = dayTasks.filter((task) => task.done || task.progressLogs?.some((entry) => entry.date === selectedDate && entry.progress === 100)).length;
   const history = Object.keys(data.daily).sort((a, b) => b.localeCompare(a));
   const fields: { key: keyof typeof daily; title: string; placeholder: string }[] = [{ key: "gain", title: "今天有什么收获？", placeholder: "" }, { key: "problem", title: "哪里卡住了？", placeholder: "" }, { key: "feeling", title: "精力与状态", placeholder: "" }, { key: "tomorrow", title: "明天最重要的一步", placeholder: "" }];
   return <div className="page reviewHistoryPage"><PageHead eyebrow="每日复盘" title={selectedDate === today ? "每日复盘" : `${selectedDate} 的记录`} action={<label className="datePicker"><span>选择日期</span><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} /></label>} /><div className="reviewLayout"><aside className="panel historyPanel"><h2>过往记录</h2><button className={selectedDate === today ? "active" : ""} onClick={() => setSelectedDate(today)}>今天 <span>{today}</span></button>{history.filter((date) => date !== today).map((date) => <button key={date} className={selectedDate === date ? "active" : ""} onClick={() => setSelectedDate(date)}>{date}<span>{data.daily[date]?.gain || data.daily[date]?.note ? "有记录" : "空白"}</span></button>)}</aside><div><div className="reviewSummary withoutTime"><div><span>完成任务</span><strong>{doneCount} / {dayTasks.length}</strong></div><div><span>记录日期</span><strong>{selectedDate.slice(5)}</strong></div></div><section className="panel reviewForm"><label><span>当天随记</span><textarea value={daily.note} aria-label="当日记录" onChange={(event) => updateDaily("note", event.target.value)} /></label>{fields.map((field) => <label key={field.key}><span>{field.title}</span><textarea value={daily[field.key]} placeholder={field.placeholder} onChange={(event) => updateDaily(field.key, event.target.value)} /></label>)}</section></div></div></div>;
