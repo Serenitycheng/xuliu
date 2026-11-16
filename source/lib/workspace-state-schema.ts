@@ -180,7 +180,7 @@ export const workspaceStateSchema = z.object({
     if (node.alsoTask && (node.courseId || node.automationKey)) context.addIssue({ code: "custom", message: "仅手动事项可设置同时作为任务" });
   })).max(10_000),
   courses: z.array(z.object({
-    id, title: shortText, term: shortText, teacher: shortText, location: shortText, school: z.enum(["pku", "bit"]).optional(), progress: z.number().int().min(0).max(100), requirements: text,
+    id, title: shortText, term: shortText, teacher: shortText, location: shortText, school: z.enum(["pku", "bit"]).optional(), ended: z.boolean().optional(), progress: z.number().int().min(0).max(100), requirements: text,
     schedule: z.array(z.object({ id, weekday: z.number().int().min(1).max(7), start: time, end: time, location: shortText, weeks: shortText.optional(), source: z.enum(["manual", "pku", "bit", "ics"]).optional() }).strict()).max(1_000),
     blocks: z.array(block).max(2_000),
   }).strict()).max(2_000),

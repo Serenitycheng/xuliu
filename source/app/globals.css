@@ -378,6 +378,12 @@ a { color: inherit; }
 .courseCard .cardOpen { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; }
 .courseCard h2 { min-height: 3em; line-height: 1.5; }
 .courseCard .cardFoot { margin-top: auto; }
+.endedCourses { margin-top: 18px; padding: 14px 20px; }
+.endedCourses > summary { cursor: pointer; font-weight: 600; }
+.endedCourses > summary span { margin-left: 8px; color: var(--muted); font-size: 12px; font-weight: 400; }
+.endedCourses > ul { margin: 10px 0 0; padding: 0; list-style: none; }
+.endedCourses li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 7px 0; border-top: 1px solid var(--line); }
+.endedCourses .taskTitleButton { min-width: 0; overflow-wrap: anywhere; text-align: left; }
 .cardKicker { color: color-mix(in srgb, var(--appearance-link, var(--accent)) 75%, var(--appearance-text, #58645d)); font-size: 11px; font-weight: 700; }
 .entityCard h2, .folderCard h2, .researchCard h2 { margin: 15px 0 8px; font-size: 19px; letter-spacing: -.03em; }
 .entityCard p, .folderCard p, .researchCard p { min-height: 43px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }

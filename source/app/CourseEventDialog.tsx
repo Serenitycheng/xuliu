@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { assessmentTypeOptions, defaultEventRequiresCompletion, eventCourseChoices, type AssessmentType, type EventDateKind } from "@/lib/course-events";
+import { assessmentTypeOptions, defaultEventRequiresCompletion, eventCourseChoices, type AssessmentType, type CourseChoice, type EventDateKind } from "@/lib/course-events";
 import { submitFormOnEnter } from "./form-keyboard";
 import { isValidLocalDate, isValidLocalTime, localDateKey } from "@/lib/finance";
 import { defaultTaskPlannedDate, newTaskPlannedDate, taskModeOf, workDateChangeAllowed, workDateInputMinimum, type TaskMode } from "@/lib/task-progress";
@@ -10,7 +10,7 @@ import "./course-events.css";
 
 export function CourseEventDialog({ node, courses, readOnly, onSave, onClose, defaultAssessmentType }: {
   node?: CourseNode;
-  courses: { id: string; title: string }[];
+  courses: CourseChoice[];
   readOnly: boolean;
   onSave: (node: CourseNode) => void;
   onClose: () => void;
@@ -37,6 +37,7 @@ export function CourseEventDialog({ node, courses, readOnly, onSave, onClose, de
     assessmentType: (form.assessmentType || undefined) as AssessmentType | undefined,
   });
   const courseChoices = eventCourseChoices(courses);
+  const linkedCourse = courses.find((course) => course.id === form.linkedCourseId);
   const currentDate = localDateKey();
   const schedule = { ...node, title: form.title, assessmentType: (form.assessmentType || undefined) as AssessmentType | undefined, alsoTask, mode: modeOverride, date: form.date, plannedDate: form.plannedDate || undefined, ...(form.plannedDate !== (node?.plannedDate ?? "") ? { dismissedTodayDate: undefined } : {}) };
   const mode = taskModeOf(schedule);
@@ -94,7 +95,7 @@ export function CourseEventDialog({ node, courses, readOnly, onSave, onClose, de
         <label><span>事项分类</span><select value={form.linkedCourseId ? "课内" : form.area} disabled={Boolean(form.linkedCourseId)} onChange={(event) => patch("area", event.target.value)}>{["生活", "工作", "课内", "课外", ...(form.area === "思考" ? ["思考"] : [])].map((value) => <option key={value}>{value}</option>)}</select></label>
         <label><span>关联课程</span><select value={form.linkedCourseId} onChange={(event) => { const value = event.target.value; setForm((current) => ({ ...current, linkedCourseId: value, ...(value ? { area: "课内" as const } : {}) })); }}>
           <option value="">不关联课程</option>
-          {form.linkedCourseId && !courseChoices.some((course) => course.id === form.linkedCourseId) && <option value={form.linkedCourseId} disabled>{courses.some((course) => course.id === form.linkedCourseId) ? "原关联不是课程，请重新选择" : "课程已移除"}</option>}
+          {form.linkedCourseId && !courseChoices.some((course) => course.id === form.linkedCourseId) && <option value={form.linkedCourseId} disabled>{linkedCourse?.ended ? `${linkedCourse.title}（已结课）` : linkedCourse ? "原关联不是课程，请重新选择" : "课程已移除"}</option>}
           {courseChoices.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}
         </select></label>
         <label><span>考核类型</span><select value={form.assessmentType} onChange={(event) => patch("assessmentType", event.target.value)}>{!defaultAssessmentType && <option value="">未设置</option>}{assessmentTypeOptions.filter((option) => !defaultAssessmentType || option.value === "exam" || option.value === "quiz").map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>

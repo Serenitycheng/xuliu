@@ -96,7 +96,7 @@ type TaskItem = { parentId?: string; parentMilestoneId?: string; examEventId?: s
 type PageNode = { id: string; space: "thoughts" | "free"; parentId: string | null; title: string; kind: "folder" | "page"; blocks: Block[] };
 type CourseSlot = { id: string; weekday: number; start: string; end: string; location: string; weeks?: string; source?: "manual" | "pku" | "bit" | "ics" };
 type AcademicImportPreset = "pku" | "bit";
-type Course = { id: string; title: string; term: string; teacher: string; location: string; school?: AcademicImportPreset; progress: number; requirements: string; schedule: CourseSlot[]; blocks: Block[] };
+type Course = { id: string; title: string; term: string; teacher: string; location: string; school?: AcademicImportPreset; ended?: boolean; progress: number; requirements: string; schedule: CourseSlot[]; blocks: Block[] };
 type ImportedCourse = {
   key: string;
   title: string;
@@ -348,7 +348,7 @@ function hydrateState(raw: unknown, initializeReviewPool = false): AppState {
     const rootLocationHasSchedule = Boolean(extractScheduleWeekRule(rootLocationText) || importWeekday(rootLocationText) || periodTimeRange(rootLocationText, school));
     return {
       id: item.id ?? uid(), title: item.title ?? "", term: item.term ?? "", teacher: item.teacher ?? "", location: rootLocationHasSchedule ? extractScheduleLocation(rootLocationText) : rootLocationText,
-      school: item.school, progress: item.progress ?? 0, requirements: item.requirements ?? "", schedule: normalizedCourseSchedule(item.schedule, school), blocks: cleanStarterBlocks(item.blocks),
+      school: item.school, ...(item.ended === true ? { ended: true } : {}), progress: item.progress ?? 0, requirements: item.requirements ?? "", schedule: normalizedCourseSchedule(item.schedule, school), blocks: cleanStarterBlocks(item.blocks),
     };
   }) : [];
   const normalizedLearning = Array.isArray(saved.learning) ? saved.learning.map((item) => ({ ...item, resources: item.resources ?? [], blocks: cleanStarterBlocks(item.blocks) })) : saved.resources?.map((item) => ({ id: item.id, title: item.title, category: item.type, progress: item.progress, goal: item.note ?? "", resources: [{ id: uid(), title: item.title, type: item.type, url: item.url ?? "", progress: item.progress }], blocks: [] })) ?? [];
@@ -867,8 +867,8 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
       {active === "tasks" && <TaskOverviewView reviewPoolEntry={reviewEntry} data={displayedData} setData={setData} setDialog={setDialog} openWork={setWorkDetail} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} access={{ ownerId: workspaceOwner, readOnly, preview }} readOnly={readOnly} />}
       {active === "calendar" && <CalendarView data={displayedData} setData={setData} setDialog={setDialog} openWork={setWorkDetail} readOnly={readOnly} />}
       {active === "review" && <ReviewView data={displayedData} setData={setData} />}
-      {active === "finance" && <FinanceView finance={data.finance} readOnly={readOnly} projectOptions={[...data.courses.map((item) => item.title), ...data.learning.map((item) => item.title), ...data.research.map((item) => item.title), ...data.tools.map((item) => item.title)]} onChange={(updater) => setData((current) => ({ ...current, finance: updater(current.finance) }))} getWorkspaceBytes={() => new Blob([JSON.stringify(data)]).size} />}
-      {active === "school" && <SchoolView data={displayedData} setData={setData} openDetail={(id) => setDetail({ type: "course", id })} setDialog={setDialog} deleteDialog={deleteDialog} />}
+      {active === "finance" && <FinanceView finance={data.finance} readOnly={readOnly} projectOptions={[...data.courses.filter((course) => !course.ended).map((item) => item.title), ...data.learning.map((item) => item.title), ...data.research.map((item) => item.title), ...data.tools.map((item) => item.title)]} onChange={(updater) => setData((current) => ({ ...current, finance: updater(current.finance) }))} getWorkspaceBytes={() => new Blob([JSON.stringify(data)]).size} />}
+      {active === "school" && <SchoolView readOnly={readOnly} data={displayedData} setData={setData} openDetail={(id) => setDetail({ type: "course", id })} setDialog={setDialog} deleteDialog={deleteDialog} />}
       {active === "learning" && <LearningView data={displayedData} setData={setData} openDetail={(id) => setDetail({ type: "learning", id })} setDialog={setDialog} deleteDialog={deleteDialog} />}
       {(active === "thoughts" || active === "free") && <NotesView space={active} data={data} setData={setData} selectedPage={selectedPage} setSelectedPage={setSelectedPage} setDialog={setDialog} deleteDialog={deleteDialog} access={{ ownerId: workspaceOwner, readOnly, preview }} />}
       {active === "work" && <WorkView data={data} setData={setData} openDetail={(id) => setDetail({ type: "research", id })} setDialog={setDialog} deleteDialog={deleteDialog} />}
@@ -1191,6 +1191,7 @@ function TimetableViewV2({ data, setData, setDialog, openCourse, deleteDialog, d
   const weekdays = importWeekdays;
   const validCourses = data.courses.filter((course) => isCourseTitleCandidate(course.title));
   const schoolCourses = dualSchool ? validCourses.filter((course) => courseSchool(course) === selectedSchool) : validCourses;
+  const selectableSchoolCourses = schoolCourses.filter((course) => !course.ended);
   const currentWeekInfo = timetableWeekInfo(today, data.timetableSettings.termStartDate);
   const weekInfo = selectedActualWeek === null ? currentWeekInfo
     : timetableWeekInfo(addDays(data.timetableSettings.termStartDate, (selectedActualWeek - 1) * 7), data.timetableSettings.termStartDate);
@@ -1212,7 +1213,7 @@ function TimetableViewV2({ data, setData, setDialog, openCourse, deleteDialog, d
     title: "添加课程时间",
     submitLabel: "加入课程表",
     fields: [
-      { name: "course", label: "课程", type: "select", options: schoolCourses.map((course) => course.title) },
+      { name: "course", label: "课程", type: "select", options: selectableSchoolCourses.map((course) => course.title) },
       { name: "weekday", label: "星期", type: "select", options: weekdays },
       { name: "start", label: "开始时间", type: "time", value: "08:00" },
       { name: "end", label: "结束时间", type: "time", value: "09:40" },
@@ -1221,7 +1222,7 @@ function TimetableViewV2({ data, setData, setDialog, openCourse, deleteDialog, d
     ],
     onSubmit: (values) => setData((current) => ({
       ...current,
-      courses: current.courses.map((course) => course.title === values.course && (!dualSchool || courseSchool(course) === selectedSchool) ? {
+      courses: current.courses.map((course) => !course.ended && course.title === values.course && (!dualSchool || courseSchool(course) === selectedSchool) ? {
         ...course,
         school: dualSchool ? selectedSchool : course.school,
         schedule: [...course.schedule, { id: uid(), weekday: Math.max(1, weekdays.indexOf(values.weekday) + 1), start: values.start, end: values.end, location: values.location || course.location, weeks: values.weeks, source: "manual" }],
@@ -1282,7 +1283,7 @@ function TimetableViewV2({ data, setData, setDialog, openCourse, deleteDialog, d
     <PageHead
       eyebrow={weekInfo ? `课表 ${weekInfo.timetableWeek} 周 · 实际第 ${weekInfo.actualWeek} 周${weekInfo.miniTerm ? " · 小学期" : ""}` : "本学期尚未开始"}
       title="课程表"
-      action={<div className="pageHeadActions"><button className="softButton" onClick={() => setImportOpen((value) => !value)}>{importOpen ? "收起教务导入" : "⇧ 教务导入"}</button><button className="primaryButton" disabled={!schoolCourses.length || readOnly} title={schoolCourses.length ? "添加课程时间" : "请先在课内学习中新建课程，或通过教务导入创建课程"} onClick={addSlot}>＋ 添加课程时间</button></div>}
+      action={<div className="pageHeadActions"><button className="softButton" onClick={() => setImportOpen((value) => !value)}>{importOpen ? "收起教务导入" : "⇧ 教务导入"}</button><button className="primaryButton" disabled={!selectableSchoolCourses.length || readOnly} title={selectableSchoolCourses.length ? "添加课程时间" : "请先在课内学习中新建课程，或通过教务导入创建课程"} onClick={addSlot}>＋ 添加课程时间</button></div>}
     />
 
     <section className="panel timetableWeekBar" aria-label="课表周次与学期设置">
@@ -1578,14 +1579,16 @@ function TaskSettingsDialog({ task, tasks, milestones, courses, learning, preset
   const presetTask = presetParent?.kind === "task" ? tasks.find((item) => item.id === presetParent.id) : undefined;
   const presetNode = presetParent?.kind === "milestone" ? milestones.find((item) => item.id === presetParent.id) : undefined;
   const parentItem = presetTask ?? presetNode;
-  const classroomSubjects = Array.from(new Map(courses.filter((course) => isCourseTitleCandidate(course.title)).map((course) => [course.title.trim(), course])).values()).map((course) => ({ id: course.id, title: course.title.trim(), area: "课内" as const }));
+  const classroomSubjects = Array.from(new Map(eventCourseChoices(courses).map((course) => [course.title.trim(), course])).values()).map((course) => ({ id: course.id, title: course.title.trim(), area: "课内" as const }));
   const extracurricularSubjects = Array.from(new Map(learning.filter((item) => item.title.trim()).map((item) => [item.title.trim(), item])).values()).map((subject) => ({ id: subject.id, title: subject.title.trim(), area: "课外" as const }));
   const subjectOptions = [...classroomSubjects, ...extracurricularSubjects];
   const examSubject = classroomSubjects.find((subject) => subject.id === presetExam?.linkedCourseId);
   const linkedExam = presetExam ?? (task?.examEventId ? milestones.find((item) => item.id === task.examEventId) : undefined);
   const initialMode = taskModeOf(task ?? {});
-  const initiallyLearning = task ? Boolean(task.courseId) : !presetExam || Boolean(examSubject);
-  const presetCourseId = presetExam ? examSubject?.id : presetNode?.courseId ?? subjectOptions[0]?.id;
+  const parentCourseEnded = courses.some((course) => course.id === presetNode?.courseId && course.ended);
+  const initiallyLearning = task ? Boolean(task.courseId) : !parentCourseEnded && (!presetExam || Boolean(examSubject));
+  const presetNodeCourseId = subjectOptions.find((subject) => subject.id === presetNode?.courseId)?.id;
+  const presetCourseId = presetExam ? examSubject?.id : presetNodeCourseId ?? subjectOptions[0]?.id;
   const [mode, setMode] = useState<TaskMode>(initialMode);
   const [origin, setOrigin] = useState<"course" | "other">(initiallyLearning ? "course" : "other");
   const [courseId, setCourseId] = useState(task?.courseId ?? presetCourseId ?? "");
@@ -1617,6 +1620,8 @@ function TaskSettingsDialog({ task, tasks, milestones, courses, learning, preset
   const openDetailAfterSave = useRef(false);
   const saveButtonRef = useRef<HTMLButtonElement>(null);
   const selectedSubject = subjectOptions.find((subject) => subject.id === courseId);
+  const existingCourse = courseId === task?.courseId ? courses.find((course) => course.id === courseId) : undefined;
+  const keepExistingSubject = Boolean(courseId && courseId === task?.courseId && !selectedSubject);
   const updateOrigin = (next: "course" | "other") => {
     setOrigin(next);
     if (next === "course") {
@@ -1647,7 +1652,7 @@ function TaskSettingsDialog({ task, tasks, milestones, courses, learning, preset
     const currentDate = dateKey();
     if (!workDateChangeAllowed(due, currentDate, task?.due) || !workDateChangeAllowed(plannedDate, currentDate, task ? defaultTaskPlannedDate(task) : undefined)) { setError("截止日期和计划推进日不能早于今天"); return; }
     const savedPlannedDate = plannedDate || ((!task || due !== (task.due ?? "")) ? newTaskPlannedDate({ due, mode }, currentDate) : undefined);
-    if (origin === "course" && subjectOptions.length > 0 && !courseId) { setError("请选择所属学习科目"); return; }
+    if (origin === "course" && !keepExistingSubject && (courseId ? !selectedSubject : subjectOptions.length > 0)) { setError("请选择所属学习科目"); return; }
     if (mode === "multi" && (!startDate || (due && startDate > due))) { setError("长期任务的开始日期不能晚于截止日期"); return; }
     let nextProgress = Math.min(100, Math.max(0, Math.round(progress)));
     let nextStatus = status;
@@ -1696,7 +1701,7 @@ function TaskSettingsDialog({ task, tasks, milestones, courses, learning, preset
       <label className="taskTitleField"><span>任务名称</span><input autoFocus required maxLength={500} value={title} placeholder="要完成什么？" onChange={(event) => setTitle(event.target.value)} /></label>
       <div className={"taskClassificationFields" + (origin === "other" ? " otherTask" : "")}>
         <div className="taskOriginField"><span>任务分类</span><div className="taskOriginPicker" role="group" aria-label="任务类型"><button type="button" aria-pressed={origin === "course"} className={origin === "course" ? "active" : ""} onClick={() => updateOrigin("course")}>学习任务</button><button type="button" aria-pressed={origin === "other"} className={origin === "other" ? "active" : ""} onClick={() => updateOrigin("other")}>其他任务</button></div></div>
-        {origin === "course" && <label><span>所属学习科目</span><select value={courseId} onChange={(event) => { const value = event.target.value; const subject = subjectOptions.find((item) => item.id === value); setCourseId(value); setArea(subject?.area ?? "课内"); setSource(subject?.title ?? "学习任务"); }}><option value="">请选择学习科目</option>{classroomSubjects.length > 0 && <optgroup label="课内学习科目">{classroomSubjects.map((subject) => <option value={subject.id} key={subject.id}>{subject.title}</option>)}</optgroup>}{extracurricularSubjects.length > 0 && <optgroup label="课外学习科目">{extracurricularSubjects.map((subject) => <option value={subject.id} key={subject.id}>{subject.title}</option>)}</optgroup>}</select></label>}
+        {origin === "course" && <label><span>所属学习科目</span><select value={courseId} onChange={(event) => { const value = event.target.value; const subject = subjectOptions.find((item) => item.id === value); setCourseId(value); setArea(subject?.area ?? "课内"); setSource(subject?.title ?? "学习任务"); }}><option value="">请选择学习科目</option>{keepExistingSubject && <option value={courseId} disabled>{existingCourse?.ended ? `${existingCourse.title}（已结课）` : existingCourse?.title ?? task?.source ?? "原关联科目"}</option>}{classroomSubjects.length > 0 && <optgroup label="课内学习科目">{classroomSubjects.map((subject) => <option value={subject.id} key={subject.id}>{subject.title}</option>)}</optgroup>}{extracurricularSubjects.length > 0 && <optgroup label="课外学习科目">{extracurricularSubjects.map((subject) => <option value={subject.id} key={subject.id}>{subject.title}</option>)}</optgroup>}</select></label>}
         <label><span>所属领域</span>{origin === "course" ? <input value={selectedSubject?.area ?? area} disabled /> : <select value={area} onChange={(event) => setArea(event.target.value as Area)}>{(["课内", "课外", "工作", "生活", "思考"] as Area[]).map((item) => <option key={item}>{item}</option>)}</select>}</label>
       </div>
       <div className="taskModePicker" aria-label="任务周期"><button type="button" aria-pressed={mode === "single"} className={mode === "single" ? "active" : ""} onClick={() => { setMode("single"); if (!task) setParentCandidate(false); }}><strong>短期任务</strong></button><button type="button" aria-pressed={mode === "multi"} className={mode === "multi" ? "active" : ""} onClick={() => { setMode("multi"); if (!task) setParentCandidate(true); }}><strong>长期任务</strong></button></div>
@@ -1807,10 +1812,34 @@ function ReviewView({ data, setData }: { data: AppState; setData: React.Dispatch
 
 type CollectionProps = { data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; setDialog: (value: DialogConfig) => void; deleteDialog: (title: string, onDelete: () => void) => void };
 
-function SchoolView({ data, setData, openDetail, setDialog, deleteDialog }: CollectionProps & { openDetail: (id: string) => void }) {
-  const visibleCourses = data.courses.filter((course) => isCourseTitleCandidate(course.title));
+function SchoolView({ data, setData, openDetail, setDialog, deleteDialog, readOnly }: CollectionProps & { openDetail: (id: string) => void; readOnly: boolean }) {
+  const visibleCourses = eventCourseChoices(data.courses);
+  const endedCourses = data.courses.filter((course) => course.ended);
+  const changeCourseStatus = (id: string, ended: boolean) => {
+    if (readOnly) return;
+    setData((current) => ({
+      ...current,
+      courses: current.courses.map((course) => course.id === id ? { ...course, ended: ended || undefined } : course),
+    }));
+  };
   const add = () => setDialog({ title: "新增课程", submitLabel: "创建课程", fields: [{ name: "title", label: "课程名称", placeholder: "例如：审计学" }, { name: "school", label: "所属课表", type: "select", options: ["北京大学", "北京理工大学"] }, { name: "term", label: "学期", value: "2026 秋季" }, { name: "teacher", label: "教师或说明" }, { name: "location", label: "上课地点" }], onSubmit: (values) => setData((current) => ({ ...current, courses: [...current.courses, { id: uid(), title: values.title || "未命名课程", term: values.term, teacher: values.teacher, location: values.location, school: values.school === "北京理工大学" ? "bit" : "pku", progress: 0, requirements: "", schedule: [], blocks: starterBlocks("课程资料与笔记") }] })) });
-  return <CollectionPage eyebrow="课内学习 · 本学期" title="课程总览" addLabel="新增课程" onAdd={add}><div className="cardGrid courseGrid">{visibleCourses.map((course) => <article className="panel entityCard courseCard" key={course.id}><button className="cardOpen" onClick={() => openDetail(course.id)}><span className="cardKicker">{course.term}</span><h2>{course.title}</h2><p aria-hidden={!course.teacher || undefined}>{course.teacher}</p><div className="cardFoot"><strong>进入课程详情 →</strong></div></button><button className="cardRemove" aria-label={`移除 ${course.title}`} onClick={() => deleteDialog(course.title, () => setData((current) => ({ ...current, courses: current.courses.filter((item) => item.id !== course.id) })))}>×</button></article>)}</div></CollectionPage>;
+  return <CollectionPage eyebrow="课内学习 · 本学期" title="课程总览" addLabel="新增课程" onAdd={readOnly ? undefined : add}>
+    <div className="cardGrid courseGrid">{visibleCourses.map((course) => <article className="panel entityCard courseCard" key={course.id}>
+      <button className="cardOpen" onClick={() => openDetail(course.id)}>
+        <span className="cardKicker">{course.term}</span><h2>{course.title}</h2>
+        <p aria-hidden={!course.teacher || undefined}>{course.teacher}</p>
+        <div className="cardFoot"><strong>进入课程详情 →</strong></div>
+      </button>
+      {!readOnly && <button className="cardRemove" aria-label={`移除 ${course.title}`} onClick={() => deleteDialog(course.title, () => setData((current) => ({ ...current, courses: current.courses.filter((item) => item.id !== course.id) })))}>×</button>}
+    </article>)}</div>
+    {endedCourses.length > 0 && <details className="panel endedCourses">
+      <summary>已结课 <span>{endedCourses.length} 门</span></summary>
+      <ul>{endedCourses.map((course) => <li key={course.id}>
+        <button className="taskTitleButton" onClick={() => openDetail(course.id)}>{course.title}</button>
+        {!readOnly && <button className="textButton" onClick={() => changeCourseStatus(course.id, false)}>恢复为在修</button>}
+      </li>)}</ul>
+    </details>}
+  </CollectionPage>;
 }
 
 function LearningView({ data, setData, openDetail, setDialog, deleteDialog }: CollectionProps & { openDetail: (id: string) => void }) {
@@ -1960,7 +1989,7 @@ function NotesView({ space, data, setData, selectedPage, setSelectedPage, setDia
   </div>;
 }
 
-function CollectionPage({ eyebrow, title, subtitle, addLabel, onAdd, children }: { eyebrow: string; title: string; subtitle?: string; addLabel: string; onAdd: () => void; children: React.ReactNode }) { return <div className="page"><PageHead eyebrow={eyebrow} title={title} subtitle={subtitle} action={<button className="primaryButton" onClick={onAdd}>＋ {addLabel}</button>} />{children}</div>; }
+function CollectionPage({ eyebrow, title, subtitle, addLabel, onAdd, children }: { eyebrow: string; title: string; subtitle?: string; addLabel: string; onAdd?: () => void; children: React.ReactNode }) { return <div className="page"><PageHead eyebrow={eyebrow} title={title} subtitle={subtitle} action={onAdd && <button className="primaryButton" onClick={onAdd}>＋ {addLabel}</button>} />{children}</div>; }
 
 function DetailRouter({ target, data, setData, back, openWork, setDialog, deleteDialog, access }: { target: NonNullable<DetailTarget>; data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; back: () => void; openWork: (target: WorkTarget) => void; setDialog: (value: DialogConfig) => void; deleteDialog: (title: string, onDelete: () => void) => void; access: EditorAccess }) {
   if (target.type === "course") { const item = data.courses.find((entry) => entry.id === target.id); return item ? <CourseDetail key={`${access.ownerId}:${item.id}`} course={item} data={data} setData={setData} back={back} openWork={openWork} setDialog={setDialog} deleteDialog={deleteDialog} access={access} /> : null; }
@@ -2004,7 +2033,10 @@ function CourseDetail({ course, data, setData, back, openWork, setDialog, delete
   const patchCourse = (patch: Partial<Course>) => setData((current) => ({ ...current, courses: current.courses.map((item) => item.id === course.id ? { ...item, ...patch } : item) }));
   const updateNode = (nodeId: string, update: (current: Milestone) => Milestone) => setData((current) => ({ ...current, milestones: current.milestones.map((item) => item.id === nodeId ? update(item) : item) }));
   const addNode = () => setCreatingNode(true);
-  return <DetailLayout eyebrow={`${course.term} · 课内课程`} title={course.title} back={back}><div className="detailGrid courseDocumentPage"><div className="detailMain"><section className="panel editorSection"><SectionHead title="资料、笔记与自由内容" /><BlockEditor blocks={course.blocks} onChange={(blocks) => patchCourse({ blocks })} showToc={false} access={access} /></section><details className="panel detailSection courseDocumentInfo"><summary>课程基本要求</summary><div className="fieldGrid"><label className="editField"><span>所属课表</span><select value={courseSchool(course)} onChange={(event) => patchCourse({ school: event.target.value as AcademicImportPreset })}><option value="pku">北京大学</option><option value="bit">北京理工大学</option></select></label><EditableField label="教师或说明" value={course.teacher} onChange={(value) => patchCourse({ teacher: value })} /><EditableField label="上课地点" value={course.location} onChange={(value) => patchCourse({ location: value })} /><label className="editField wide"><span>课程要求</span><textarea value={course.requirements} onChange={(event) => patchCourse({ requirements: event.target.value })} /></label></div></details><section className="panel detailSection"><SectionHead title="课程任务" action={!access.readOnly && <button className="primaryButton" disabled={creatingNode} onClick={addNode}>＋ 新增课程任务</button>} />{creatingNode && <CourseNodeForm courseId={course.id} location={course.location} date={today} access={access} onCancel={() => setCreatingNode(false)} onCreate={(node) => { setData((current) => ({ ...current, milestones: [...current.milestones, node] })); setCreatingNode(false); setEditingNodeId(node.id); }} />}<div className="nodeTable"><div className="nodeTableHead"><span>任务</span><span>时间</span><span>地点</span><span>要求与成果</span><span>完成</span></div>{nodes.map((node) => <Fragment key={node.id}><div className={`nodeRow ${node.done ? "done" : ""}`}><strong>{node.title}</strong><span>{node.date}<small>{node.time}</small></span><span>{node.location}</span><div className="nodeRequirementCell"><span title={node.requirements}>{node.requirements || "未填写要求"}</span><button type="button" disabled={nodePending} aria-expanded={editingNodeId === node.id} onClick={() => setEditingNodeId((current) => current === node.id ? "" : node.id)}>{editingNodeId === node.id ? "收起" : "查看要求与成果"}{node.attachments?.length ? ` · ${node.attachments.length} 个要求附件` : ""}</button><small className="nodeOutcomeSummary">{node.outcomeAttachments?.length ? `已保存 ${node.outcomeAttachments.length} 个成果文件` : node.outcomeText ? "已记录成果说明" : "暂无成果"}</small></div><button className={`habitCheck ${node.done ? "done" : ""}`} disabled={access.readOnly} aria-label={`${node.done ? "取消完成" : "标记完成"}：${node.title}`} onClick={() => updateNode(node.id, (current) => ({ ...current, done: !current.done }))}>{node.done ? "✓" : ""}</button><button className="miniRemove" disabled={access.readOnly || nodePending} aria-label={`删除课程节点：${node.title}`} onClick={() => deleteDialog(node.title, () => setData((current) => ({ ...current, milestones: current.milestones.filter((item) => item.id !== node.id) })))}>×</button></div>{editingNodeId === node.id && <CourseNodeEditor key={node.id} onPendingChange={setNodePending} node={node} access={access} onChange={(update) => updateNode(node.id, update)} onClose={() => setEditingNodeId("")} />}</Fragment>)}</div><SubjectLinkedTasks tasks={linkedTasks} openWork={openWork} /></section>{relatedEvents.length > 0 && <section className="panel detailSection courseRelatedEvents"><SectionHead title="相关事项 / 考核节点" /><div>{relatedEvents.map((item) => <div className={"courseRelatedEvent " + (item.done ? "done" : "")} key={item.id}><button type="button" className="checkButton" disabled={access.readOnly} aria-label={(item.done ? "标记未完成：" : "标记完成：") + item.title} aria-pressed={item.done} onClick={() => updateNode(item.id, (current) => ({ ...current, done: !current.done }))}>{item.done ? "✓" : ""}</button><button type="button" className="courseRelatedEventTitle" onClick={() => openWork({ kind: "milestone", id: item.id })}><strong>{item.title}</strong><span>{[assessmentTypeLabel(item.assessmentType), eventDateLabel(item)].filter(Boolean).join(" · ")}</span></button><button type="button" className="softButton" disabled={access.readOnly} onClick={() => setEditingEvent(item)}>修改</button></div>)}</div></section>}{editingEvent && <CourseEventDialog node={editingEvent} courses={data.courses} readOnly={access.readOnly} onClose={() => setEditingEvent(null)} onSave={(value) => { updateNode(value.id, () => value); setEditingEvent(null); }} />}</div><aside className="detailAside"><BlockToc blocks={course.blocks} /></aside></div></DetailLayout>;
+  return <DetailLayout
+    eyebrow={`${course.term} · 课内课程${course.ended ? " · 已结课" : ""}`} title={course.title} back={back}
+    action={!access.readOnly && <button type="button" className="softButton" onClick={() => patchCourse({ ended: course.ended ? undefined : true })}>{course.ended ? "恢复为在修" : "标记已结课"}</button>}
+  ><div className="detailGrid courseDocumentPage"><div className="detailMain"><section className="panel editorSection"><SectionHead title="资料、笔记与自由内容" /><BlockEditor blocks={course.blocks} onChange={(blocks) => patchCourse({ blocks })} showToc={false} access={access} /></section><details className="panel detailSection courseDocumentInfo"><summary>课程基本要求</summary><div className="fieldGrid"><label className="editField"><span>所属课表</span><select value={courseSchool(course)} onChange={(event) => patchCourse({ school: event.target.value as AcademicImportPreset })}><option value="pku">北京大学</option><option value="bit">北京理工大学</option></select></label><EditableField label="教师或说明" value={course.teacher} onChange={(value) => patchCourse({ teacher: value })} /><EditableField label="上课地点" value={course.location} onChange={(value) => patchCourse({ location: value })} /><label className="editField wide"><span>课程要求</span><textarea value={course.requirements} onChange={(event) => patchCourse({ requirements: event.target.value })} /></label></div></details><section className="panel detailSection"><SectionHead title="课程任务" action={!access.readOnly && <button className="primaryButton" disabled={creatingNode} onClick={addNode}>＋ 新增课程任务</button>} />{creatingNode && <CourseNodeForm courseId={course.id} location={course.location} date={today} access={access} onCancel={() => setCreatingNode(false)} onCreate={(node) => { setData((current) => ({ ...current, milestones: [...current.milestones, node] })); setCreatingNode(false); setEditingNodeId(node.id); }} />}<div className="nodeTable"><div className="nodeTableHead"><span>任务</span><span>时间</span><span>地点</span><span>要求与成果</span><span>完成</span></div>{nodes.map((node) => <Fragment key={node.id}><div className={`nodeRow ${node.done ? "done" : ""}`}><strong>{node.title}</strong><span>{node.date}<small>{node.time}</small></span><span>{node.location}</span><div className="nodeRequirementCell"><span title={node.requirements}>{node.requirements || "未填写要求"}</span><button type="button" disabled={nodePending} aria-expanded={editingNodeId === node.id} onClick={() => setEditingNodeId((current) => current === node.id ? "" : node.id)}>{editingNodeId === node.id ? "收起" : "查看要求与成果"}{node.attachments?.length ? ` · ${node.attachments.length} 个要求附件` : ""}</button><small className="nodeOutcomeSummary">{node.outcomeAttachments?.length ? `已保存 ${node.outcomeAttachments.length} 个成果文件` : node.outcomeText ? "已记录成果说明" : "暂无成果"}</small></div><button className={`habitCheck ${node.done ? "done" : ""}`} disabled={access.readOnly} aria-label={`${node.done ? "取消完成" : "标记完成"}：${node.title}`} onClick={() => updateNode(node.id, (current) => ({ ...current, done: !current.done }))}>{node.done ? "✓" : ""}</button><button className="miniRemove" disabled={access.readOnly || nodePending} aria-label={`删除课程节点：${node.title}`} onClick={() => deleteDialog(node.title, () => setData((current) => ({ ...current, milestones: current.milestones.filter((item) => item.id !== node.id) })))}>×</button></div>{editingNodeId === node.id && <CourseNodeEditor key={node.id} onPendingChange={setNodePending} node={node} access={access} onChange={(update) => updateNode(node.id, update)} onClose={() => setEditingNodeId("")} />}</Fragment>)}</div><SubjectLinkedTasks tasks={linkedTasks} openWork={openWork} /></section>{relatedEvents.length > 0 && <section className="panel detailSection courseRelatedEvents"><SectionHead title="相关事项 / 考核节点" /><div>{relatedEvents.map((item) => <div className={"courseRelatedEvent " + (item.done ? "done" : "")} key={item.id}><button type="button" className="checkButton" disabled={access.readOnly} aria-label={(item.done ? "标记未完成：" : "标记完成：") + item.title} aria-pressed={item.done} onClick={() => updateNode(item.id, (current) => ({ ...current, done: !current.done }))}>{item.done ? "✓" : ""}</button><button type="button" className="courseRelatedEventTitle" onClick={() => openWork({ kind: "milestone", id: item.id })}><strong>{item.title}</strong><span>{[assessmentTypeLabel(item.assessmentType), eventDateLabel(item)].filter(Boolean).join(" · ")}</span></button><button type="button" className="softButton" disabled={access.readOnly} onClick={() => setEditingEvent(item)}>修改</button></div>)}</div></section>}{editingEvent && <CourseEventDialog node={editingEvent} courses={data.courses} readOnly={access.readOnly} onClose={() => setEditingEvent(null)} onSave={(value) => { updateNode(value.id, () => value); setEditingEvent(null); }} />}</div><aside className="detailAside"><BlockToc blocks={course.blocks} /></aside></div></DetailLayout>;
 }
 
 function LearningDetail({ item, data, setData, back, openWork, setDialog, access }: { item: LearningArea; data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; back: () => void; openWork: (target: WorkTarget) => void; setDialog: (value: DialogConfig) => void; access: EditorAccess }) {
@@ -2906,7 +2938,7 @@ function TableBlock({ rows, onChange }: { rows: string[][]; onChange: (rows: str
   return <div className="tableBlock">{rows.map((row, r) => <div className="tableBlockRow" key={r}>{row.map((cell, c) => <input key={c} value={cell} onChange={(event) => setCell(r, c, event.target.value)} />)}</div>)}<button onClick={() => onChange([...rows, Array(rows[0]?.length || 2).fill("")])}>＋ 添加一行</button></div>;
 }
 
-function DetailLayout({ eyebrow, title, subtitle, back, children }: { eyebrow: string; title: string; subtitle?: string; back: () => void; children: React.ReactNode }) { return <div className="page detailPage"><button className="backButton" onClick={back}>← 返回列表</button><PageHead eyebrow={eyebrow} title={title} subtitle={subtitle} />{children}</div>; }
+function DetailLayout({ eyebrow, title, subtitle, action, back, children }: { eyebrow: string; title: string; subtitle?: string; action?: React.ReactNode; back: () => void; children: React.ReactNode }) { return <div className="page detailPage"><button className="backButton" onClick={back}>← 返回列表</button><PageHead eyebrow={eyebrow} title={title} subtitle={subtitle} action={action} />{children}</div>; }
 function EditableField({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) { return <label className="editField"><span>{label}</span><input type={type} value={value} onChange={(event) => onChange(event.target.value)} /></label>; }
 
 function FormDialog({ config, onClose }: { config: DialogConfig; onClose: () => void }) {

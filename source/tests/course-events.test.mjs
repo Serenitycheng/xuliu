@@ -12,6 +12,18 @@ const course = (id, title) => ({ id, title, term: '', teacher: '', location: '',
 const event = (id, title, patch = {}) => ({ id, title, date: '2026-10-26', time: '00:00', location: '', requirements: '', area: '课内', done: false, ...patch });
 const stateFor = (milestones, courses = [course('probability', '概率论与数理统计')]) => ({ ...createEmptyWorkspaceState(), milestones, courses });
 
+test('ended courses leave the choices, while existing associations survive saving and can be restored', () => {
+  const ended = { ...course('probability', '概率论与数理统计'), ended: true };
+  const active = course('algebra', '线性代数');
+  const linked = event('exam', '概率论与数理统计考试', { linkedCourseId: ended.id, courseLinkReviewed: true });
+  const saved = workspaceStateSchema.parse(stateFor([linked], [ended, active]));
+  assert.deepEqual(eventCourseChoices(saved.courses).map((item) => item.id), [active.id]);
+  assert.deepEqual(saved.courses[0], ended);
+  assert.deepEqual(saved.milestones[0], linked);
+  assert.equal(eventCourseLabel(linked, saved.courses), "课内学习 / 概率论与数理统计");
+  assert.deepEqual(eventCourseChoices([{ ...ended, ended: false }, active]).map((item) => item.id), [ended.id, active.id]);
+});
+
 test('schedules finish at their time or after their date without treating overdue tasks as completed', () => {
   const schedule = event('appointment', '预约', { date: '2026-11-09', time: '14:30', requiresCompletion: false });
   assert.equal(scheduleHasElapsed(schedule, '2026-11-09', '14:29'), false);
