@@ -45,26 +45,23 @@
 :root[data-background] .shell .attachmentDocumentPage, :root[data-background] .shell .attachmentSheet table { color: #28312c; background: #fff; }
 
 :root {
-  --gradient-swatch: linear-gradient(135deg, #a6b9bf 3%, #edf0ee 47%, #cfc4e2 72%, #e9cdb3 100%);
+  --wandering-gradient:
+    radial-gradient(ellipse 38% 83% at 11% 43%, #a7b7b9, #aebfc1c9 32%, #c8d5d57a 62%, #dce6e43d 81%, transparent),
+    radial-gradient(ellipse 43% 91% at 88% 24%, #c9bfd8c9, #d2c8dfb8 32%, #ddd4e77a 63%, #e5def03d 82%, transparent),
+    radial-gradient(ellipse 41% 67% at 81% 108%, #e7caaae6, #ead1b6c9 34%, #efddca75 66%, #f3e5d936 85%, transparent),
+    linear-gradient(115deg, #e5ebe9, #f8f9f9 43%, #f8f7fa 62%, #f1e8e5);
 }
 .appearancePreview[data-gradient-swatch], .appearanceCodeFields i[data-gradient-swatch],
-.backgroundModes button[data-gradient-swatch] { background-image: var(--gradient-swatch); }
+.backgroundModes button[data-gradient-swatch] { background-image: var(--wandering-gradient); }
 .backgroundModes button[data-gradient-swatch] { color: #28312c; }
 .backgroundModes button[data-gradient-swatch][aria-pressed="true"] { border-color: var(--text); }
 
 :root[data-background="gradient"] .shell .main {
-  background-image:
-    radial-gradient(ellipse at 48% 29%, #fafbfa 4%, #fafbfa00 65%),
-    radial-gradient(ellipse at 0% 10%, #9bb0b770, transparent 52%),
-    radial-gradient(ellipse at 100% 0%, #b9aacd73, transparent 52%),
-    radial-gradient(ellipse at 95% 95%, #e6c6a778, transparent 50%);
+  background-image: linear-gradient(#e8ecebd4, #e8ecebd4), var(--wandering-gradient);
   background-attachment: fixed;
 }
 :root[data-background="gradient"] .shell :is(.panel:not(.focusPanel), .entityCard, .researchCard, .folderCard, .recipeCard, .miniStats > div) {
-  background-image:
-    radial-gradient(ellipse at 49% 42%, #fffefa80, transparent 69%),
-    radial-gradient(ellipse at 0% 22%, #91a9b063, transparent 59%),
-    radial-gradient(ellipse at 100% 0%, #b9aad35c, transparent 58%),
-    radial-gradient(ellipse at 88% 120%, #e7bf9973, transparent 60%);
+  background-image: var(--wandering-gradient);
+  box-shadow: 0 2px 8px #28312c0a;
 }
 @media (max-width: 620px) { .themePicker:has(.backgroundPicker) { flex-wrap: wrap; justify-content: flex-end; border-radius: 18px; } }

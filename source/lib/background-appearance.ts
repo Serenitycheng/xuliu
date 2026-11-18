@@ -63,7 +63,8 @@ export function backgroundPalette(preference: BackgroundPreference, accent = "#7
   const paper = mix(background, surfaceTarget, dark ? .045 : .88);
   const soft = mix(background, surfaceTarget, dark ? .085 : .70);
   const surfaces = [background, paper, soft].map(luminance);
-  if (gradient) surfaces.push(luminance("#c1c9d0"));
+  // The blue-grey center of the first wash is the darkest panel surface.
+  if (gradient) surfaces.push(luminance("#a7b7b9"));
   const foreground = dark ? "#ffffff" : "#000000";
   const text = readable(dark ? "#e9edf0" : "#28312c", surfaces, 4.5, foreground);
   return {

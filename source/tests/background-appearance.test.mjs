@@ -61,7 +61,7 @@ test('gradient preferences survive storage and keep secondary text readable over
   assert.equal(palette.dark, false);
   assert.equal(palette.background, backgroundPalette({ ...preference, color: '#000000' }).background);
   for (const ink of [palette.text, palette.muted, palette.faint, palette.link]) {
-    assert.ok(backgroundContrast(ink, '#c1c9d0') >= 4.5, ink);
+    assert.ok(backgroundContrast(ink, '#a7b7b9') >= 4.5, ink);
   }
 });
 
