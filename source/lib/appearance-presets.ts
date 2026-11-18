@@ -1,11 +1,11 @@
-import { gradientBackgroundColor, isBackgroundMode, normalizeBackground, type BackgroundPreference } from "./background-appearance.ts";
+import { isBackgroundMode, isCustomBackground, normalizeBackground, type BackgroundPreference } from "./background-appearance.ts";
 
 export type AppearancePreset = { id: string; name: string; themeColor: string; background: BackgroundPreference };
 export const appearancePresetsStorageKey = "xuliu-appearance-presets-v1";
 const validColor = (value: unknown): value is string => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
 
 export function appearancePresetKey(themeColor: string, background: BackgroundPreference) {
-  return `${themeColor.toLowerCase()}:${background.mode}:${background.mode === "custom" ? background.color.toLowerCase() : ""}`;
+  return `${themeColor.toLowerCase()}:${background.mode}:${isCustomBackground(background.mode) ? background.color.toLowerCase() : ""}`;
 }
 
 export function normalizeAppearancePresets(raw: unknown): AppearancePreset[] {
@@ -29,7 +29,7 @@ export function normalizeAppearancePresets(raw: unknown): AppearancePreset[] {
 
 export function appearancePresetMatches(preset: AppearancePreset, query: string) {
   const mode = preset.background.mode;
-  const background = mode === "custom" ? preset.background.color : mode === "dark" ? "深色 #171c20" : mode === "gradient" ? `漫游渐变 ${gradientBackgroundColor}` : "浅色 #f4f5f2";
+  const background = isCustomBackground(mode) ? `${mode === "gradient" ? "渐变 " : ""}${preset.background.color}` : mode === "dark" ? "深色 #171c20" : "浅色 #f4f5f2";
   return `${preset.name} ${preset.themeColor} ${background}`.toLowerCase().includes(query.trim().toLowerCase());
 }
 

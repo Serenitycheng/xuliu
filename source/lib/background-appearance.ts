@@ -5,10 +5,13 @@ export const backgroundStorageKey = "xuliu-background-v1";
 export const backgroundColorsStorageKey = "xuliu-saved-background-colors-v1";
 const backgroundColorDefaultsKey = "xuliu-background-color-defaults-v1";
 export const defaultBackground: BackgroundPreference = { mode: "light", color: "#e9eeeb" };
-export const gradientBackgroundColor = "#e8eceb";
 
 export function isBackgroundMode(value: unknown): value is BackgroundMode {
   return backgroundModes.some((mode) => mode === value);
+}
+
+export function isCustomBackground(mode: BackgroundMode) {
+  return mode === "custom" || mode === "gradient";
 }
 
 export function normalizeBackgroundColors(value: unknown): string[] {
@@ -56,19 +59,19 @@ function readable(color: string, surfaceLuminances: number[], minimum: number, f
 export function backgroundPalette(preference: BackgroundPreference, accent = "#718c7c") {
   const settings = normalizeBackground(preference);
   if (settings.mode === "light") return null;
-  const gradient = settings.mode === "gradient";
-  const background = settings.mode === "dark" ? "#171c20" : gradient ? gradientBackgroundColor : settings.color;
+  const background = settings.mode === "dark" ? "#171c20" : settings.color;
   const dark = backgroundContrast("#ffffff", background) >= backgroundContrast("#000000", background);
   const surfaceTarget = dark && luminance(background) > .10 ? "#000000" : "#ffffff";
   const paper = mix(background, surfaceTarget, dark ? .045 : .88);
   const soft = mix(background, surfaceTarget, dark ? .085 : .70);
-  const surfaces = [background, paper, soft].map(luminance);
-  // The blue-grey center of the first wash is the darkest panel surface.
-  if (gradient) surfaces.push(luminance("#a7b7b9"));
   const foreground = dark ? "#ffffff" : "#000000";
+  const gradientTint = settings.mode === "gradient"
+    ? readable(mix(background, foreground, .18), [luminance(foreground)], 4.5, background)
+    : background;
+  const surfaces = [background, paper, soft, gradientTint].map(luminance);
   const text = readable(dark ? "#e9edf0" : "#28312c", surfaces, 4.5, foreground);
   return {
-    background, paper, soft, dark, text,
+    background, paper, soft, dark, text, gradientTint,
     sidebar: mix(background, dark ? "#000000" : "#ffffff", dark ? .08 : .38),
     muted: readable(mix(text, background, .34), surfaces, 4.5, foreground),
     faint: readable(mix(text, background, .44), surfaces, 4.5, foreground),

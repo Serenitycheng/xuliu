@@ -8,6 +8,8 @@
 .backgroundModes button { flex: 1; padding: 8px 5px; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; font-size: 12px; }
 .backgroundModes button[aria-pressed="true"] { color: var(--text); border-color: var(--line-strong); background: var(--paper); }
 .backgroundModes button { white-space: nowrap; }
+.backgroundStyle { margin-top: 9px; }
+.backgroundStyle button { display: flex; align-items: center; justify-content: center; gap: 6px; }
 .backgroundOptions label { display: block; margin: 18px 0 9px; color: var(--muted); font-size: 12px; }
 .backgroundFields { display: flex; align-items: center; gap: 7px; }
 .backgroundFields input { min-width: 0; height: 35px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper-soft); color: var(--text); }
@@ -44,24 +46,17 @@
 :root[data-background] .shell :is(.readOnlyBanner, .updateBanner) { color: var(--text); background: var(--paper-soft); border-color: var(--line); }
 :root[data-background] .shell .attachmentDocumentPage, :root[data-background] .shell .attachmentSheet table { color: #28312c; background: #fff; }
 
-:root {
-  --wandering-gradient:
-    radial-gradient(ellipse 38% 83% at 11% 43%, #a7b7b9, #aebfc1c9 32%, #c8d5d57a 62%, #dce6e43d 81%, transparent),
-    radial-gradient(ellipse 43% 91% at 88% 24%, #c9bfd8c9, #d2c8dfb8 32%, #ddd4e77a 63%, #e5def03d 82%, transparent),
-    radial-gradient(ellipse 41% 67% at 81% 108%, #e7caaae6, #ead1b6c9 34%, #efddca75 66%, #f3e5d936 85%, transparent),
-    linear-gradient(115deg, #e5ebe9, #f8f9f9 43%, #f8f7fa 62%, #f1e8e5);
-}
-.appearancePreview[data-gradient-swatch], .appearanceCodeFields i[data-gradient-swatch],
-.backgroundModes button[data-gradient-swatch] { background-image: var(--wandering-gradient); }
-.backgroundModes button[data-gradient-swatch] { color: #28312c; }
-.backgroundModes button[data-gradient-swatch][aria-pressed="true"] { border-color: var(--text); }
-
 :root[data-background="gradient"] .shell .main {
-  background-image: linear-gradient(#e8ecebd4, #e8ecebd4), var(--wandering-gradient);
+  background-image:
+    radial-gradient(ellipse 62% 84% at 28% 7%, var(--appearance-gradient-tint), transparent),
+    radial-gradient(ellipse 64% 77% at 93% 90%, var(--appearance-soft), transparent);
   background-attachment: fixed;
 }
 :root[data-background="gradient"] .shell :is(.panel:not(.focusPanel), .entityCard, .researchCard, .folderCard, .recipeCard, .miniStats > div) {
-  background-image: var(--wandering-gradient);
-  box-shadow: 0 2px 8px #28312c0a;
+  background-image:
+    radial-gradient(ellipse 43% 88% at 11% 43%, var(--appearance-gradient-tint), transparent),
+    radial-gradient(ellipse 46% 90% at 90% 19%, var(--appearance-bg), transparent),
+    radial-gradient(ellipse 40% 65% at 79% 107%, var(--appearance-bg), transparent),
+    linear-gradient(115deg, var(--appearance-soft), var(--appearance-surface) 53%, var(--appearance-soft));
 }
 @media (max-width: 620px) { .themePicker:has(.backgroundPicker) { flex-wrap: wrap; justify-content: flex-end; border-radius: 18px; } }

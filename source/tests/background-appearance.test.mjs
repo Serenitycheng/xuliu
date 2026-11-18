@@ -54,23 +54,27 @@ test('dark and custom backgrounds keep their exact color when accent changes', (
   }
 });
 
-test('gradient preferences survive storage and keep secondary text readable over the tint', () => {
+test('gradient preferences survive storage and use the selected color for both background and tint', () => {
   const preference = { mode: 'gradient', color: '#123456' };
   assert.deepEqual(normalizeBackground(JSON.parse(JSON.stringify(preference))), preference);
   const palette = backgroundPalette(preference, '#80674d');
-  assert.equal(palette.dark, false);
-  assert.equal(palette.background, backgroundPalette({ ...preference, color: '#000000' }).background);
-  for (const ink of [palette.text, palette.muted, palette.faint, palette.link]) {
-    assert.ok(backgroundContrast(ink, '#a7b7b9') >= 4.5, ink);
-  }
+  assert.equal(palette.dark, true);
+  assert.equal(palette.background, preference.color);
+  assert.notEqual(palette.gradientTint, palette.background);
+  const warm = backgroundPalette({ ...preference, color: '#dbc5bc' }, '#80674d');
+  assert.equal(warm.dark, false);
+  assert.equal(warm.background, '#dbc5bc');
+  assert.notEqual(warm.gradientTint, palette.gradientTint);
 });
 
-test('text, secondary labels and accent links remain readable on light, dark and vivid custom surfaces', () => {
-  for (const color of ['#000000', '#ffffff', '#757575', '#777777', '#0000ff', '#ff0000', '#ff00ff', '#00ffff', '#e9eeeb']) {
-    const palette = backgroundPalette({ mode: 'custom', color }, '#80674d');
-    for (const foreground of [palette.text, palette.muted, palette.faint, palette.link, palette.danger, palette.income, palette.expense]) {
-      for (const surface of [palette.background, palette.paper, palette.soft]) {
-        assert.ok(backgroundContrast(foreground, surface) >= 4.5, `${color}: ${foreground} / ${surface}`);
+test('text, secondary labels and accent links remain readable on solid and gradient custom surfaces', () => {
+  for (const mode of ['custom', 'gradient']) {
+    for (const color of ['#000000', '#ffffff', '#757575', '#777777', '#0000ff', '#ff0000', '#ff00ff', '#00ffff', '#e9eeeb']) {
+      const palette = backgroundPalette({ mode, color }, '#80674d');
+      for (const foreground of [palette.text, palette.muted, palette.faint, palette.link, palette.danger, palette.income, palette.expense]) {
+        for (const surface of [palette.background, palette.paper, palette.soft, palette.gradientTint]) {
+          assert.ok(backgroundContrast(foreground, surface) >= 4.5, `${mode} ${color}: ${foreground} / ${surface}`);
+        }
       }
     }
   }

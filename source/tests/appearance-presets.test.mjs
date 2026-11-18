@@ -59,7 +59,11 @@ test('gradient combinations round-trip and are distinct from a solid background 
   assert.equal(result.created, true);
   assert.deepEqual(normalizeAppearancePresets(JSON.parse(JSON.stringify(result.presets))), [...current, result.preset]);
   assert.deepEqual(result.preset.background, background);
-  assert.equal(appearancePresetMatches(result.preset, '漫游渐变'), true);
+  assert.equal(appearancePresetMatches(result.preset, '渐变'), true);
+  assert.equal(appearancePresetMatches(result.preset, '#E8ECEB'), true);
+  const other = saveAppearancePreset(result.presets, { ...result.preset, background: { mode: 'gradient', color: '#123456' } }, 'gradient-blue');
+  assert.equal(other.created, true);
+  assert.deepEqual(normalizeAppearancePresets(other.presets), [...result.presets, other.preset]);
 });
 
 test('an invalid pair is rejected before saving either color, and unchanged modes are preserved', () => {
