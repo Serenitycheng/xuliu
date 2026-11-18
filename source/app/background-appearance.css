@@ -7,6 +7,7 @@
 .backgroundModes { display: flex; gap: 5px; padding: 3px; border-radius: 8px; background: var(--paper-soft); }
 .backgroundModes button { flex: 1; padding: 8px 5px; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; font-size: 12px; }
 .backgroundModes button[aria-pressed="true"] { color: var(--text); border-color: var(--line-strong); background: var(--paper); }
+.backgroundModes button { white-space: nowrap; }
 .backgroundOptions label { display: block; margin: 18px 0 9px; color: var(--muted); font-size: 12px; }
 .backgroundFields { display: flex; align-items: center; gap: 7px; }
 .backgroundFields input { min-width: 0; height: 35px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper-soft); color: var(--text); }
@@ -42,4 +43,28 @@
 :root[data-background] .shell .focusPanel { color: #fff; }
 :root[data-background] .shell :is(.readOnlyBanner, .updateBanner) { color: var(--text); background: var(--paper-soft); border-color: var(--line); }
 :root[data-background] .shell .attachmentDocumentPage, :root[data-background] .shell .attachmentSheet table { color: #28312c; background: #fff; }
+
+:root {
+  --gradient-swatch: linear-gradient(135deg, #a6b9bf 3%, #edf0ee 47%, #cfc4e2 72%, #e9cdb3 100%);
+}
+.appearancePreview[data-gradient-swatch], .appearanceCodeFields i[data-gradient-swatch],
+.backgroundModes button[data-gradient-swatch] { background-image: var(--gradient-swatch); }
+.backgroundModes button[data-gradient-swatch] { color: #28312c; }
+.backgroundModes button[data-gradient-swatch][aria-pressed="true"] { border-color: var(--text); }
+
+:root[data-background="gradient"] .shell .main {
+  background-image:
+    radial-gradient(ellipse at 48% 29%, #fafbfa 4%, #fafbfa00 65%),
+    radial-gradient(ellipse at 0% 10%, #9bb0b770, transparent 52%),
+    radial-gradient(ellipse at 100% 0%, #b9aacd73, transparent 52%),
+    radial-gradient(ellipse at 95% 95%, #e6c6a778, transparent 50%);
+  background-attachment: fixed;
+}
+:root[data-background="gradient"] .shell :is(.panel:not(.focusPanel), .entityCard, .researchCard, .folderCard, .recipeCard, .miniStats > div) {
+  background-image:
+    radial-gradient(ellipse at 49% 42%, #fffefa80, transparent 69%),
+    radial-gradient(ellipse at 0% 22%, #91a9b063, transparent 59%),
+    radial-gradient(ellipse at 100% 0%, #b9aad35c, transparent 58%),
+    radial-gradient(ellipse at 88% 120%, #e7bf9973, transparent 60%);
+}
 @media (max-width: 620px) { .themePicker:has(.backgroundPicker) { flex-wrap: wrap; justify-content: flex-end; border-radius: 18px; } }

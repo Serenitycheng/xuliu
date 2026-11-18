@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appearancePresetKey, appearancePresetsStorageKey, normalizeAppearancePresets, saveAppearancePreset } from '../lib/appearance-presets.ts';
+import { appearancePresetKey, appearancePresetMatches, appearancePresetsStorageKey, normalizeAppearancePresets, saveAppearancePreset } from '../lib/appearance-presets.ts';
 import { normalizeColorCode, normalizeSavedColor } from '../lib/saved-colors.ts';
 import { backgroundColorsStorageKey, backgroundStorageKey } from '../lib/background-appearance.ts';
 
@@ -50,6 +50,16 @@ test('resaving a pair keeps its identity and position, and renames only when a n
   assert.equal(renamed.preset.name, '新名称');
   assert.equal(renamed.presets[1], current[1]);
   assert.equal(current[0].name, '晚间');
+});
+
+test('gradient combinations round-trip and are distinct from a solid background with the same base color', () => {
+  const background = { mode: 'gradient', color: '#e8eceb' };
+  const current = normalizeAppearancePresets([{ ...preset, background: { ...background, mode: 'custom' } }]);
+  const result = saveAppearancePreset(current, { ...preset, name: '蓝灰', background }, 'gradient');
+  assert.equal(result.created, true);
+  assert.deepEqual(normalizeAppearancePresets(JSON.parse(JSON.stringify(result.presets))), [...current, result.preset]);
+  assert.deepEqual(result.preset.background, background);
+  assert.equal(appearancePresetMatches(result.preset, '漫游渐变'), true);
 });
 
 test('an invalid pair is rejected before saving either color, and unchanged modes are preserved', () => {

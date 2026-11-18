@@ -1,4 +1,4 @@
-import { normalizeBackground, type BackgroundPreference } from "./background-appearance.ts";
+import { gradientBackgroundColor, isBackgroundMode, normalizeBackground, type BackgroundPreference } from "./background-appearance.ts";
 
 export type AppearancePreset = { id: string; name: string; themeColor: string; background: BackgroundPreference };
 export const appearancePresetsStorageKey = "xuliu-appearance-presets-v1";
@@ -18,7 +18,7 @@ export function normalizeAppearancePresets(raw: unknown): AppearancePreset[] {
     const entry = value as Record<string, unknown>;
     const background = entry.background as Record<string, unknown> | null;
     if (typeof entry.id !== "string" || !entry.id || entry.id.length > 120 || typeof entry.name !== "string" || !entry.name.trim() || entry.name.trim().length > 80 || !validColor(entry.themeColor)
-      || !background || Array.isArray(background) || !["light", "dark", "custom"].includes(String(background.mode)) || !validColor(background.color)) continue;
+      || !background || Array.isArray(background) || !isBackgroundMode(background.mode) || !validColor(background.color)) continue;
     const normalized = { id: entry.id, name: entry.name.trim(), themeColor: entry.themeColor.toLowerCase(), background: normalizeBackground(background) };
     const key = appearancePresetKey(normalized.themeColor, normalized.background);
     if (ids.has(normalized.id) || colors.has(key)) continue;
@@ -28,7 +28,8 @@ export function normalizeAppearancePresets(raw: unknown): AppearancePreset[] {
 }
 
 export function appearancePresetMatches(preset: AppearancePreset, query: string) {
-  const background = preset.background.mode === "custom" ? preset.background.color : preset.background.mode === "dark" ? "深色 #171c20" : "浅色 #f4f5f2";
+  const mode = preset.background.mode;
+  const background = mode === "custom" ? preset.background.color : mode === "dark" ? "深色 #171c20" : mode === "gradient" ? `漫游渐变 ${gradientBackgroundColor}` : "浅色 #f4f5f2";
   return `${preset.name} ${preset.themeColor} ${background}`.toLowerCase().includes(query.trim().toLowerCase());
 }
 
@@ -39,7 +40,7 @@ export function renameAppearancePreset(presets: AppearancePreset[], id: string, 
 }
 
 export function saveAppearancePreset(presets: AppearancePreset[], draft: Omit<AppearancePreset, "id">, newId: string) {
-  if (!validColor(draft.themeColor) || !validColor(draft.background.color) || !["light", "dark", "custom"].includes(draft.background.mode) || draft.name.trim().length > 80) return null;
+  if (!validColor(draft.themeColor) || !validColor(draft.background.color) || !isBackgroundMode(draft.background.mode) || draft.name.trim().length > 80) return null;
   const themeColor = draft.themeColor.toLowerCase();
   const background = normalizeBackground(draft.background);
   const existing = presets.find((item) => appearancePresetKey(item.themeColor, item.background) === appearancePresetKey(themeColor, background));

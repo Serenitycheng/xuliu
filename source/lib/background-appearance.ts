@@ -1,9 +1,15 @@
-export type BackgroundMode = "light" | "dark" | "custom";
+const backgroundModes = ["light", "dark", "gradient", "custom"] as const;
+export type BackgroundMode = typeof backgroundModes[number];
 export type BackgroundPreference = { mode: BackgroundMode; color: string };
 export const backgroundStorageKey = "xuliu-background-v1";
 export const backgroundColorsStorageKey = "xuliu-saved-background-colors-v1";
 const backgroundColorDefaultsKey = "xuliu-background-color-defaults-v1";
 export const defaultBackground: BackgroundPreference = { mode: "light", color: "#e9eeeb" };
+export const gradientBackgroundColor = "#e8eceb";
+
+export function isBackgroundMode(value: unknown): value is BackgroundMode {
+  return backgroundModes.some((mode) => mode === value);
+}
 
 export function normalizeBackgroundColors(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -22,7 +28,7 @@ export function loadSavedBackgroundColors(storage: Pick<Storage, "getItem" | "se
 export function normalizeBackground(value: unknown): BackgroundPreference {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { ...defaultBackground };
   const raw = value as Record<string, unknown>;
-  const mode = raw.mode === "dark" || raw.mode === "custom" ? raw.mode : "light";
+  const mode = isBackgroundMode(raw.mode) ? raw.mode : "light";
   const color = typeof raw.color === "string" && /^#[0-9a-f]{6}$/i.test(raw.color) ? raw.color.toLowerCase() : defaultBackground.color;
   return { mode, color };
 }
@@ -50,12 +56,14 @@ function readable(color: string, surfaceLuminances: number[], minimum: number, f
 export function backgroundPalette(preference: BackgroundPreference, accent = "#718c7c") {
   const settings = normalizeBackground(preference);
   if (settings.mode === "light") return null;
-  const background = settings.mode === "dark" ? "#171c20" : settings.color;
+  const gradient = settings.mode === "gradient";
+  const background = settings.mode === "dark" ? "#171c20" : gradient ? gradientBackgroundColor : settings.color;
   const dark = backgroundContrast("#ffffff", background) >= backgroundContrast("#000000", background);
   const surfaceTarget = dark && luminance(background) > .10 ? "#000000" : "#ffffff";
   const paper = mix(background, surfaceTarget, dark ? .045 : .88);
   const soft = mix(background, surfaceTarget, dark ? .085 : .70);
   const surfaces = [background, paper, soft].map(luminance);
+  if (gradient) surfaces.push(luminance("#c1c9d0"));
   const foreground = dark ? "#ffffff" : "#000000";
   const text = readable(dark ? "#e9edf0" : "#28312c", surfaces, 4.5, foreground);
   return {

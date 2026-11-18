@@ -54,6 +54,17 @@ test('dark and custom backgrounds keep their exact color when accent changes', (
   }
 });
 
+test('gradient preferences survive storage and keep secondary text readable over the tint', () => {
+  const preference = { mode: 'gradient', color: '#123456' };
+  assert.deepEqual(normalizeBackground(JSON.parse(JSON.stringify(preference))), preference);
+  const palette = backgroundPalette(preference, '#80674d');
+  assert.equal(palette.dark, false);
+  assert.equal(palette.background, backgroundPalette({ ...preference, color: '#000000' }).background);
+  for (const ink of [palette.text, palette.muted, palette.faint, palette.link]) {
+    assert.ok(backgroundContrast(ink, '#c1c9d0') >= 4.5, ink);
+  }
+});
+
 test('text, secondary labels and accent links remain readable on light, dark and vivid custom surfaces', () => {
   for (const color of ['#000000', '#ffffff', '#757575', '#777777', '#0000ff', '#ff0000', '#ff00ff', '#00ffff', '#e9eeeb']) {
     const palette = backgroundPalette({ mode: 'custom', color }, '#80674d');
