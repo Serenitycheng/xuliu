@@ -1,11 +1,13 @@
-import { isBackgroundMode, isCustomBackground, normalizeBackground, type BackgroundPreference } from "./background-appearance.ts";
+import { isBackgroundMode, normalizeBackground, type BackgroundPreference } from "./background-appearance.ts";
 
-export type AppearancePreset = { id: string; name: string; themeColor: string; background: BackgroundPreference };
+type PresetBackground = BackgroundPreference | { mode: "gradient"; color: string };
+export type AppearancePreset = { id: string; name: string; themeColor: string; background: PresetBackground };
 export const appearancePresetsStorageKey = "xuliu-appearance-presets-v1";
 const validColor = (value: unknown): value is string => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
 
-export function appearancePresetKey(themeColor: string, background: BackgroundPreference) {
-  return `${themeColor.toLowerCase()}:${background.mode}:${isCustomBackground(background.mode) ? background.color.toLowerCase() : ""}`;
+export function appearancePresetKey(themeColor: string, background: PresetBackground) {
+  const mode = background.mode === "gradient" ? "custom" : background.mode;
+  return `${themeColor.toLowerCase()}:${mode}:${mode === "custom" ? background.color.toLowerCase() : ""}`;
 }
 
 export function normalizeAppearancePresets(raw: unknown): AppearancePreset[] {
@@ -17,10 +19,12 @@ export function normalizeAppearancePresets(raw: unknown): AppearancePreset[] {
     if (!value || typeof value !== "object" || Array.isArray(value)) continue;
     const entry = value as Record<string, unknown>;
     const background = entry.background as Record<string, unknown> | null;
+    const mode = background?.mode;
     if (typeof entry.id !== "string" || !entry.id || entry.id.length > 120 || typeof entry.name !== "string" || !entry.name.trim() || entry.name.trim().length > 80 || !validColor(entry.themeColor)
-      || !background || Array.isArray(background) || !isBackgroundMode(background.mode) || !validColor(background.color)) continue;
-    const normalized = { id: entry.id, name: entry.name.trim(), themeColor: entry.themeColor.toLowerCase(), background: normalizeBackground(background) };
-    const key = appearancePresetKey(normalized.themeColor, normalized.background);
+      || !background || Array.isArray(background) || (mode !== "gradient" && !isBackgroundMode(mode)) || !validColor(background.color)) continue;
+    const normalized: AppearancePreset = { id: entry.id, name: entry.name.trim(), themeColor: entry.themeColor.toLowerCase(), background: { mode, color: background.color.toLowerCase() } };
+    // Keep both existing names if the same colors were saved in solid and gradient modes.
+    const key = `${mode}:${appearancePresetKey(normalized.themeColor, normalized.background)}`;
     if (ids.has(normalized.id) || colors.has(key)) continue;
     result.push(normalized); ids.add(normalized.id); colors.add(key);
   }
@@ -29,7 +33,7 @@ export function normalizeAppearancePresets(raw: unknown): AppearancePreset[] {
 
 export function appearancePresetMatches(preset: AppearancePreset, query: string) {
   const mode = preset.background.mode;
-  const background = isCustomBackground(mode) ? `${mode === "gradient" ? "渐变 " : ""}${preset.background.color}` : mode === "dark" ? "深色 #171c20" : "浅色 #f4f5f2";
+  const background = mode === "custom" || mode === "gradient" ? preset.background.color : mode === "dark" ? "深色 #171c20" : "浅色 #f4f5f2";
   return `${preset.name} ${preset.themeColor} ${background}`.toLowerCase().includes(query.trim().toLowerCase());
 }
 
@@ -39,7 +43,7 @@ export function renameAppearancePreset(presets: AppearancePreset[], id: string, 
   return presets.map((preset) => preset.id === id ? { ...preset, name: trimmed } : preset);
 }
 
-export function saveAppearancePreset(presets: AppearancePreset[], draft: Omit<AppearancePreset, "id">, newId: string) {
+export function saveAppearancePreset(presets: AppearancePreset[], draft: Omit<AppearancePreset, "id" | "background"> & { background: BackgroundPreference }, newId: string) {
   if (!validColor(draft.themeColor) || !validColor(draft.background.color) || !isBackgroundMode(draft.background.mode) || draft.name.trim().length > 80) return null;
   const themeColor = draft.themeColor.toLowerCase();
   const background = normalizeBackground(draft.background);

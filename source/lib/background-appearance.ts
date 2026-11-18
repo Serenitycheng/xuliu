@@ -1,6 +1,7 @@
-const backgroundModes = ["light", "dark", "gradient", "custom"] as const;
+const backgroundModes = ["light", "dark", "custom"] as const;
 export type BackgroundMode = typeof backgroundModes[number];
 export type BackgroundPreference = { mode: BackgroundMode; color: string };
+export type BackgroundSettings = BackgroundPreference & { gradient: boolean };
 export const backgroundStorageKey = "xuliu-background-v1";
 export const backgroundColorsStorageKey = "xuliu-saved-background-colors-v1";
 const backgroundColorDefaultsKey = "xuliu-background-color-defaults-v1";
@@ -8,10 +9,6 @@ export const defaultBackground: BackgroundPreference = { mode: "light", color: "
 
 export function isBackgroundMode(value: unknown): value is BackgroundMode {
   return backgroundModes.some((mode) => mode === value);
-}
-
-export function isCustomBackground(mode: BackgroundMode) {
-  return mode === "custom" || mode === "gradient";
 }
 
 export function normalizeBackgroundColors(value: unknown): string[] {
@@ -31,9 +28,15 @@ export function loadSavedBackgroundColors(storage: Pick<Storage, "getItem" | "se
 export function normalizeBackground(value: unknown): BackgroundPreference {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { ...defaultBackground };
   const raw = value as Record<string, unknown>;
-  const mode = isBackgroundMode(raw.mode) ? raw.mode : "light";
+  const mode = raw.mode === "gradient" ? "custom" : isBackgroundMode(raw.mode) ? raw.mode : "light";
   const color = typeof raw.color === "string" && /^#[0-9a-f]{6}$/i.test(raw.color) ? raw.color.toLowerCase() : defaultBackground.color;
   return { mode, color };
+}
+
+export function normalizeBackgroundSettings(value: unknown): BackgroundSettings {
+  const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const gradient = typeof raw.gradient === "boolean" ? raw.gradient : raw.mode === "gradient";
+  return { ...normalizeBackground(value), gradient };
 }
 
 const rgb = (color: string) => [1, 3, 5].map((index) => parseInt(color.slice(index, index + 2), 16));
@@ -56,16 +59,16 @@ function readable(color: string, surfaceLuminances: number[], minimum: number, f
   return foreground;
 }
 
-export function backgroundPalette(preference: BackgroundPreference, accent = "#718c7c") {
+export function backgroundPalette(preference: BackgroundPreference, accent = "#718c7c", gradient = false) {
   const settings = normalizeBackground(preference);
-  if (settings.mode === "light") return null;
-  const background = settings.mode === "dark" ? "#171c20" : settings.color;
+  if (settings.mode === "light" && !gradient) return null;
+  const background = settings.mode === "light" ? "#f4f5f2" : settings.mode === "dark" ? "#171c20" : settings.color;
   const dark = backgroundContrast("#ffffff", background) >= backgroundContrast("#000000", background);
   const surfaceTarget = dark && luminance(background) > .10 ? "#000000" : "#ffffff";
   const paper = mix(background, surfaceTarget, dark ? .045 : .88);
   const soft = mix(background, surfaceTarget, dark ? .085 : .70);
   const foreground = dark ? "#ffffff" : "#000000";
-  const gradientTint = settings.mode === "gradient"
+  const gradientTint = gradient
     ? readable(mix(background, foreground, .18), [luminance(foreground)], 4.5, background)
     : background;
   const surfaces = [background, paper, soft, gradientTint].map(luminance);

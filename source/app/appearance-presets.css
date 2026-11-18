@@ -35,6 +35,7 @@
 .appearancePresetForm > div { display: flex; justify-content: flex-end; gap: 7px; }
 .appearancePresetForm button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--text); background: var(--paper-soft); font-size: 11px; }
 .appearanceMorePanel .appearanceStyle { padding-top: 17px; margin-top: 20px; border-top: 1px solid var(--line); }
+.appearanceStyleOptions { display: flex; flex-wrap: wrap; gap: 8px; }
 .appearanceCodeForm { display: grid; gap: 9px; margin-bottom: 18px; }
 .appearanceCodeFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .appearanceCodeFields label { display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: 11px; }

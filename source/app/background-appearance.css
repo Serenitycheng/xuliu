@@ -8,8 +8,6 @@
 .backgroundModes button { flex: 1; padding: 8px 5px; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; font-size: 12px; }
 .backgroundModes button[aria-pressed="true"] { color: var(--text); border-color: var(--line-strong); background: var(--paper); }
 .backgroundModes button { white-space: nowrap; }
-.backgroundStyle { margin-top: 9px; }
-.backgroundStyle button { display: flex; align-items: center; justify-content: center; gap: 6px; }
 .backgroundOptions label { display: block; margin: 18px 0 9px; color: var(--muted); font-size: 12px; }
 .backgroundFields { display: flex; align-items: center; gap: 7px; }
 .backgroundFields input { min-width: 0; height: 35px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper-soft); color: var(--text); }
@@ -46,13 +44,18 @@
 :root[data-background] .shell :is(.readOnlyBanner, .updateBanner) { color: var(--text); background: var(--paper-soft); border-color: var(--line); }
 :root[data-background] .shell .attachmentDocumentPage, :root[data-background] .shell .attachmentSheet table { color: #28312c; background: #fff; }
 
-:root[data-background="gradient"] .shell .main {
+:root[data-background-gradient] .shell .main {
   background-image:
     radial-gradient(ellipse 62% 84% at 28% 7%, var(--appearance-gradient-tint), transparent),
     radial-gradient(ellipse 64% 77% at 93% 90%, var(--appearance-soft), transparent);
   background-attachment: fixed;
 }
-:root[data-background="gradient"] .shell :is(.panel:not(.focusPanel), .entityCard, .researchCard, .folderCard, .recipeCard, .miniStats > div) {
+:root[data-background-gradient] .shell :is(.sidebar, .mobileHeader, .mobileTabs) {
+  background-image:
+    radial-gradient(ellipse 132% 58% at 0% 10%, var(--appearance-gradient-tint), transparent),
+    linear-gradient(155deg, var(--appearance-sidebar), var(--appearance-bg) 55%, var(--appearance-soft));
+}
+:root[data-background-gradient] .shell :is(.panel:not(.focusPanel), .entityCard, .researchCard, .folderCard, .recipeCard, .miniStats > div) {
   background-image:
     radial-gradient(ellipse 43% 88% at 11% 43%, var(--appearance-gradient-tint), transparent),
     radial-gradient(ellipse 46% 90% at 90% 19%, var(--appearance-bg), transparent),

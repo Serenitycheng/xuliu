@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { appearancePresetKey, appearancePresetMatches, appearancePresetsStorageKey, normalizeAppearancePresets, saveAppearancePreset } from '../lib/appearance-presets.ts';
 import { normalizeColorCode, normalizeSavedColor } from '../lib/saved-colors.ts';
-import { backgroundColorsStorageKey, backgroundStorageKey } from '../lib/background-appearance.ts';
+import { backgroundColorsStorageKey, backgroundStorageKey, normalizeBackground } from '../lib/background-appearance.ts';
 
 const preset = { id: 'one', name: ' 晚间 ', themeColor: '#657F91', background: { mode: 'custom', color: '#18232B' } };
 
@@ -52,18 +52,17 @@ test('resaving a pair keeps its identity and position, and renames only when a n
   assert.equal(current[0].name, '晚间');
 });
 
-test('gradient combinations round-trip and are distinct from a solid background with the same base color', () => {
-  const background = { mode: 'gradient', color: '#e8eceb' };
-  const current = normalizeAppearancePresets([{ ...preset, background: { ...background, mode: 'custom' } }]);
-  const result = saveAppearancePreset(current, { ...preset, name: '蓝灰', background }, 'gradient');
-  assert.equal(result.created, true);
-  assert.deepEqual(normalizeAppearancePresets(JSON.parse(JSON.stringify(result.presets))), [...current, result.preset]);
-  assert.deepEqual(result.preset.background, background);
-  assert.equal(appearancePresetMatches(result.preset, '渐变'), true);
-  assert.equal(appearancePresetMatches(result.preset, '#E8ECEB'), true);
-  const other = saveAppearancePreset(result.presets, { ...result.preset, background: { mode: 'gradient', color: '#123456' } }, 'gradient-blue');
-  assert.equal(other.created, true);
-  assert.deepEqual(normalizeAppearancePresets(other.presets), [...result.presets, other.preset]);
+test('legacy gradient combinations preserve both names and apply only their colors', () => {
+  const legacy = { ...preset, id: 'gradient', name: '夜读渐变', background: { ...preset.background, mode: 'gradient' } };
+  const current = normalizeAppearancePresets([preset, legacy]);
+  assert.deepEqual(current.map(({ id, name }) => [id, name]), [['one', '晚间'], ['gradient', '夜读渐变']]);
+  assert.deepEqual(normalizeAppearancePresets(JSON.parse(JSON.stringify(current))), current);
+  assert.deepEqual(normalizeBackground(current[1].background), current[0].background);
+  assert.equal(appearancePresetMatches(current[1], '#18232B'), true);
+  assert.equal(appearancePresetKey(preset.themeColor, legacy.background), appearancePresetKey(preset.themeColor, preset.background));
+  const result = saveAppearancePreset(current, { ...preset, name: '蓝灰', background: { mode: 'custom', color: '#123456', gradient: true } }, 'new');
+  assert.deepEqual(result.preset.background, { mode: 'custom', color: '#123456' });
+  assert.deepEqual(result.presets.slice(0, 2), current);
 });
 
 test('an invalid pair is rejected before saving either color, and unchanged modes are preserved', () => {

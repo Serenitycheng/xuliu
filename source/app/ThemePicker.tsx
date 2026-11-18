@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from "react";
 import { BackgroundPicker, BackgroundSwatch, useBackgroundAppearance } from "./BackgroundAppearance";
-import { isCustomBackground } from "@/lib/background-appearance";
+import { normalizeBackground } from "@/lib/background-appearance";
 import { appearancePresetKey, appearancePresetMatches, appearancePresetsStorageKey, normalizeAppearancePresets, renameAppearancePreset, saveAppearancePreset, type AppearancePreset } from "@/lib/appearance-presets";
 import { normalizeColorCode, normalizeSavedColors, themeColorNamesKey } from "@/lib/saved-colors";
 import { InlineNameEditor, SavedColorLibrary, useSavedColorNames } from "./SavedColorLibrary";
@@ -16,7 +16,7 @@ function readColors(key: string): string[] {
   return normalizeSavedColors(JSON.parse(localStorage.getItem(key) ?? "[]"));
 }
 function readPresets() { return normalizeAppearancePresets(JSON.parse(localStorage.getItem(appearancePresetsStorageKey) ?? "[]")); }
-const backgroundPreview = (value: AppearancePreset["background"]) => value.mode === "dark" ? "#171c20" : isCustomBackground(value.mode) ? value.color : "#f4f5f2";
+const backgroundPreview = (value: AppearancePreset["background"]) => value.mode === "dark" ? "#171c20" : value.mode === "light" ? "#f4f5f2" : value.color;
 
 export function AppearanceMenu(props: ComponentProps<typeof ThemePicker>) {
   const [expanded, setExpanded] = useState(false);
@@ -55,7 +55,8 @@ export function AppearanceMenu(props: ComponentProps<typeof ThemePicker>) {
 export default function ThemePicker({ color, designMode, presets, onChange, onDesignChange, defaultPanel = null }: {
   color: string; designMode: "classic" | "paper"; presets: string[]; onChange: (color: string) => boolean; onDesignChange: (mode: "classic" | "paper") => void; defaultPanel?: "theme" | "more" | null;
 }) {
-  const { preference: background, choose: chooseBackground } = useBackgroundAppearance();
+  const { preference: background, choose: chooseBackground, gradient, chooseGradient } = useBackgroundAppearance();
+  const [gradientSaveFailed, setGradientSaveFailed] = useState(false);
   const [open, setOpen] = useState<"theme" | "background" | "more" | null>(defaultPanel);
   const [savedColors, setSavedColors] = useState<string[]>([]);
   const [recentColors, setRecentColors] = useState<string[]>([]);
@@ -126,12 +127,12 @@ export default function ThemePicker({ color, designMode, presets, onChange, onDe
     if (!themeColor || !backgroundColor) { setMessage("主题色和背景色都需填写六位颜色编码，例如 #80674d"); return; }
     try {
       const current = readPresets();
-      const result = saveAppearancePreset(current, { name, themeColor, background: backgroundEdited ? { mode: background.mode === "gradient" ? "gradient" : "custom", color: backgroundColor } : background }, crypto.randomUUID());
+      const result = saveAppearancePreset(current, { name, themeColor, background: backgroundEdited ? { mode: "custom", color: backgroundColor } : background }, crypto.randomUUID());
       if (!result) { setMessage("请检查颜色编码和组合名称"); return; }
       localStorage.setItem(appearancePresetsStorageKey, JSON.stringify(result.presets));
       setCombinations(result.presets); setRenaming(null); setCombinationQuery("");
       const themeSaved = choose(result.preset.themeColor);
-      const backgroundSaved = chooseBackground(result.preset.background);
+      const backgroundSaved = chooseBackground(normalizeBackground(result.preset.background));
       setCombinationTheme(themeColor); setCombinationBackground(backgroundColor); setName(result.preset.name);
       setMessage(themeSaved && backgroundSaved ? (result.created ? "已保存并应用组合" : "已应用并保存现有组合") : "组合已收藏并应用，浏览器暂时无法保存当前外观");
     } catch { setMessage("浏览器暂时无法保存配色组合"); }
@@ -169,14 +170,27 @@ export default function ThemePicker({ color, designMode, presets, onChange, onDe
       <form className="appearanceCodeForm" onKeyDown={submitFormOnEnter} onSubmit={(event) => { event.preventDefault(); saveCombination(); }}>
         <div className="appearanceCodeFields">
           <label>主题色<div><i aria-hidden="true" style={{ backgroundColor: normalizeColor(combinationTheme) || color }} /><input aria-label="组合主题色编码" value={combinationTheme} placeholder="#80674d" maxLength={7} spellCheck={false} autoComplete="off" onChange={(event) => { setCombinationTheme(event.target.value); setMessage(""); }} /></div></label>
-          <label>{background.mode === "gradient" ? "背景色 · 渐变" : "背景色"}<div><BackgroundSwatch gradient={background.mode === "gradient"} color={normalizeColor(combinationBackground) || backgroundPreview(background)} /><input aria-label="组合背景色编码" value={combinationBackground} placeholder="#f4f5f2" maxLength={7} spellCheck={false} autoComplete="off" onChange={(event) => { setCombinationBackground(event.target.value); setBackgroundEdited(true); setMessage(""); }} /></div></label>
+          <label>背景色<div><BackgroundSwatch gradient={gradient} color={normalizeColor(combinationBackground) || backgroundPreview(background)} /><input aria-label="组合背景色编码" value={combinationBackground} placeholder="#f4f5f2" maxLength={7} spellCheck={false} autoComplete="off" onChange={(event) => { setCombinationBackground(event.target.value); setBackgroundEdited(true); setMessage(""); }} /></div></label>
         </div>
         <div className="appearanceCodeSave"><input className="themeHexInput" aria-label="新组合名称" maxLength={80} value={name} placeholder="组合名称（可选）" onChange={(event) => setName(event.target.value)} /><button type="submit" className="themeSaveButton">保存并应用</button></div>
         {message && <p className="themeColorMessage" role="status">{message}</p>}
       </form>
-      <section><h2>配色组合</h2>{combinations.length > 0 && <><input className="savedLibrarySearch" type="search" aria-label="搜索配色组合" placeholder="搜索名称或颜色值" value={combinationQuery} onChange={(event) => { setCombinationQuery(event.target.value); setRenaming(null); }} /><div className={"appearancePresetList" + (combinations.length > 6 && !showAllCombinations ? " appearancePresetCompact" : "")}>{visibleCombinations.map((item) => <div className="appearancePresetRow" key={item.id}>{renaming === item.id ? <InlineNameEditor key={item.id} label="组合名称" initialName={item.name} onCancel={() => setRenaming(null)} onSave={(value) => renameCombination(item.id, value)} /> : <><button type="button" className="appearancePresetChoice" aria-label={"使用配色组合 " + item.name} aria-pressed={appearancePresetKey(item.themeColor, item.background) === appearancePresetKey(color, background)} title={`${item.name} · ${item.themeColor} / ${backgroundPreview(item.background)}${item.background.mode === "gradient" ? " 渐变" : ""}`} onClick={() => { const themeSaved = choose(item.themeColor); const backgroundSaved = chooseBackground(item.background); setCombinationTheme(item.themeColor); setCombinationBackground(backgroundPreview(item.background)); setBackgroundEdited(false); setName(item.name); setMessage(themeSaved && backgroundSaved ? "已应用配色组合" : "已应用，浏览器暂时无法保存"); }}><span className="appearancePresetDots" aria-hidden="true"><i className="appearancePreview" style={{ backgroundColor: item.themeColor }} /><BackgroundSwatch className="appearancePreview" gradient={item.background.mode === "gradient"} color={backgroundPreview(item.background)} /></span><span>{item.name}</span></button><button type="button" className="appearancePresetRename" aria-label={"修改组合名称 " + item.name} onClick={() => { setRenaming(item.id); setMessage(""); }}>改名</button><button type="button" className="appearancePresetRemove" aria-label={"移除配色组合 " + item.name} onClick={() => removeCombination(item.id)}>×</button></>}</div>)}{!filteredCombinations.length && <p className="savedLibraryEmpty">没有匹配的组合</p>}</div>{combinations.length > 6 && <button type="button" className="savedLibraryExpand" aria-expanded={showAllCombinations} onClick={() => setShowAllCombinations((current) => !current)}>{showAllCombinations ? "收起" : `查看全部与管理 · ${combinations.length} 组`}</button>}</>}
+      <section><h2>配色组合</h2>{combinations.length > 0 && <><input className="savedLibrarySearch" type="search" aria-label="搜索配色组合" placeholder="搜索名称或颜色值" value={combinationQuery} onChange={(event) => { setCombinationQuery(event.target.value); setRenaming(null); }} /><div className={"appearancePresetList" + (combinations.length > 6 && !showAllCombinations ? " appearancePresetCompact" : "")}>{visibleCombinations.map((item) => <div className="appearancePresetRow" key={item.id}>{renaming === item.id ? <InlineNameEditor key={item.id} label="组合名称" initialName={item.name} onCancel={() => setRenaming(null)} onSave={(value) => renameCombination(item.id, value)} /> : <><button type="button" className="appearancePresetChoice" aria-label={"使用配色组合 " + item.name} aria-pressed={appearancePresetKey(item.themeColor, item.background) === appearancePresetKey(color, background)} title={`${item.name} · ${item.themeColor} / ${backgroundPreview(item.background)}`} onClick={() => { const themeSaved = choose(item.themeColor); const backgroundSaved = chooseBackground(normalizeBackground(item.background)); setCombinationTheme(item.themeColor); setCombinationBackground(backgroundPreview(item.background)); setBackgroundEdited(false); setName(item.name); setMessage(themeSaved && backgroundSaved ? "已应用配色组合" : "已应用，浏览器暂时无法保存"); }}><span className="appearancePresetDots" aria-hidden="true"><i className="appearancePreview" style={{ backgroundColor: item.themeColor }} /><BackgroundSwatch className="appearancePreview" gradient={gradient} color={backgroundPreview(item.background)} /></span><span>{item.name}</span></button><button type="button" className="appearancePresetRename" aria-label={"修改组合名称 " + item.name} onClick={() => { setRenaming(item.id); setMessage(""); }}>改名</button><button type="button" className="appearancePresetRemove" aria-label={"移除配色组合 " + item.name} onClick={() => removeCombination(item.id)}>×</button></>}</div>)}{!filteredCombinations.length && <p className="savedLibraryEmpty">没有匹配的组合</p>}</div>{combinations.length > 6 && <button type="button" className="savedLibraryExpand" aria-expanded={showAllCombinations} onClick={() => setShowAllCombinations((current) => !current)}>{showAllCombinations ? "收起" : `查看全部与管理 · ${combinations.length} 组`}</button>}</>}
       </section>
-      <section className="appearanceStyle"><h2>界面风格</h2><div className="designModeTabs" role="group" aria-label="界面风格"><button type="button" className={designMode === "classic" ? "active" : ""} aria-pressed={designMode === "classic"} onClick={() => onDesignChange("classic")}>经典</button><button type="button" className={designMode === "paper" ? "active" : ""} aria-pressed={designMode === "paper"} onClick={() => onDesignChange("paper")}>纸页</button></div></section>
+      <section className="appearanceStyle">
+        <h2>界面风格</h2>
+        <div className="appearanceStyleOptions">
+          <div className="designModeTabs" role="group" aria-label="界面风格">
+            <button type="button" className={designMode === "classic" ? "active" : ""} aria-pressed={designMode === "classic"} onClick={() => onDesignChange("classic")}>经典</button>
+            <button type="button" className={designMode === "paper" ? "active" : ""} aria-pressed={designMode === "paper"} onClick={() => onDesignChange("paper")}>纸页</button>
+          </div>
+          <div className="designModeTabs" role="group" aria-label="背景效果">
+            <button type="button" className={!gradient ? "active" : ""} aria-pressed={!gradient} onClick={() => setGradientSaveFailed(!chooseGradient(false))}>纯色</button>
+            <button type="button" className={gradient ? "active" : ""} aria-pressed={gradient} onClick={() => setGradientSaveFailed(!chooseGradient(true))}>渐变</button>
+          </div>
+        </div>
+        {gradientSaveFailed && <p className="themeColorMessage" role="status">已切换背景效果，浏览器暂时无法保存</p>}
+      </section>
     </div>}
   </div>;
 }
