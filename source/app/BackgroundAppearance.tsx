@@ -17,7 +17,7 @@ type BackgroundControls = {
 const defaultSettings: BackgroundSettings = { ...defaultBackground, gradient: false };
 const PreferenceContext = createContext(defaultSettings);
 const ControlsContext = createContext<BackgroundControls>({ choose: () => false, chooseGradient: () => false, preview: () => {}, resetPreview: () => {}, setAccent: () => {} });
-const propertyNames = ["bg", "surface", "soft", "sidebar", "text", "muted", "faint", "line", "line-strong", "danger", "income", "expense", "link", "gradient-tint"];
+const propertyNames = ["bg", "surface", "soft", "sidebar", "text", "muted", "faint", "line", "line-strong", "danger", "income", "expense", "link", "gradient-tint", "gradient-accent"];
 
 function readBackgroundColors() {
   return loadSavedBackgroundColors(localStorage);
@@ -34,7 +34,7 @@ function applyBackground(value: BackgroundPreference, accent: string, gradient: 
   } else {
     root.dataset.background = value.mode;
     root.style.colorScheme = palette.dark ? "dark" : "light";
-    const colors = [palette.background, palette.paper, palette.soft, palette.sidebar, palette.text, palette.muted, palette.faint, palette.line, palette.strongLine, palette.danger, palette.income, palette.expense, palette.link, palette.gradientTint];
+    const colors = [palette.background, palette.paper, palette.soft, palette.sidebar, palette.text, palette.muted, palette.faint, palette.line, palette.strongLine, palette.danger, palette.income, palette.expense, palette.link, palette.gradientTint, palette.gradientAccent];
     propertyNames.forEach((name, index) => root.style.setProperty(`--appearance-${name}`, colors[index]));
   }
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", palette?.background ?? "#f4f5f2");

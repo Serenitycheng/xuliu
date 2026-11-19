@@ -67,6 +67,10 @@ test('legacy gradient settings preserve the chosen color and opt in to the indep
   assert.equal(palette.dark, true);
   assert.equal(palette.background, preference.color);
   assert.notEqual(palette.gradientTint, palette.background);
+  const otherTheme = backgroundPalette(preference, '#725b74', true);
+  assert.equal(otherTheme.background, palette.background);
+  assert.equal(otherTheme.gradientTint, palette.gradientTint);
+  assert.notEqual(otherTheme.gradientAccent, palette.gradientAccent);
   const warm = backgroundPalette({ ...preference, color: '#dbc5bc' }, '#80674d', true);
   assert.equal(warm.dark, false);
   assert.equal(warm.background, '#dbc5bc');
@@ -80,7 +84,7 @@ test('text, secondary labels and accent links remain readable on solid and gradi
     for (const color of ['#000000', '#ffffff', '#757575', '#777777', '#0000ff', '#ff0000', '#ff00ff', '#00ffff', '#e9eeeb']) {
       const palette = backgroundPalette({ mode: 'custom', color }, '#80674d', gradient);
       for (const foreground of [palette.text, palette.muted, palette.faint, palette.link, palette.danger, palette.income, palette.expense]) {
-        for (const surface of [palette.background, palette.paper, palette.soft, palette.gradientTint]) {
+        for (const surface of [palette.background, palette.paper, palette.soft, palette.gradientTint, palette.gradientAccent]) {
           assert.ok(backgroundContrast(foreground, surface) >= 4.5, `gradient=${gradient} ${color}: ${foreground} / ${surface}`);
         }
       }

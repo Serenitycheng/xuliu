@@ -57,9 +57,23 @@
 }
 :root[data-background-gradient] .shell :is(.panel:not(.focusPanel), .entityCard, .researchCard, .folderCard, .recipeCard, .miniStats > div) {
   background-image:
-    radial-gradient(ellipse 43% 88% at 11% 43%, var(--appearance-gradient-tint), transparent),
-    radial-gradient(ellipse 46% 90% at 90% 19%, var(--appearance-bg), transparent),
-    radial-gradient(ellipse 40% 65% at 79% 107%, var(--appearance-bg), transparent),
-    linear-gradient(115deg, var(--appearance-soft), var(--appearance-surface) 53%, var(--appearance-soft));
+    radial-gradient(var(--panel-accent-area, ellipse 66% 98% at 92% 4%), var(--appearance-gradient-accent), transparent),
+    radial-gradient(var(--panel-tint-area, ellipse 67% 96% at 5% 99%), var(--appearance-gradient-tint), transparent),
+    linear-gradient(var(--panel-gradient-angle, 145deg), var(--appearance-soft), var(--appearance-surface) 54%, var(--appearance-bg));
+}
+:root[data-background-gradient] .shell :is(.taskPanel, .taskWorkPanel, .overviewPanel, .calendarPanel) {
+  --panel-accent-area: ellipse 79% 57% at 56% 0%;
+  --panel-tint-area: ellipse 72% 48% at 79% 97%;
+  --panel-gradient-angle: 172deg;
+}
+:root[data-background-gradient] .shell :is(.upcomingDeadlinePanel, .reminderPanel, .todayHabitsPanel, .todayGrid > .stack > .todayCategoryPanel:nth-of-type(even)) {
+  --panel-accent-area: ellipse 73% 104% at 16% 104%;
+  --panel-tint-area: ellipse 51% 69% at 96% 4%;
+  --panel-gradient-angle: 38deg;
+}
+:root[data-background-gradient] .shell :is(.notePanel, .todayIdeaPool, .editorSection) {
+  --panel-accent-area: ellipse 81% 81% at 54% 109%;
+  --panel-tint-area: ellipse 63% 58% at 88% 12%;
+  --panel-gradient-angle: 8deg;
 }
 @media (max-width: 620px) { .themePicker:has(.backgroundPicker) { flex-wrap: wrap; justify-content: flex-end; border-radius: 18px; } }

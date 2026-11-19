@@ -68,19 +68,24 @@ export function backgroundPalette(preference: BackgroundPreference, accent = "#7
   const paper = mix(background, surfaceTarget, dark ? .045 : .88);
   const soft = mix(background, surfaceTarget, dark ? .085 : .70);
   const foreground = dark ? "#ffffff" : "#000000";
+  const themeColor = /^#[0-9a-f]{6}$/i.test(accent) ? accent : "#718c7c";
+  const foregroundLuminance = luminance(foreground);
   const gradientTint = gradient
-    ? readable(mix(background, foreground, .18), [luminance(foreground)], 4.5, background)
+    ? readable(mix(background, foreground, .18), [foregroundLuminance], 4.5, background)
     : background;
-  const surfaces = [background, paper, soft, gradientTint].map(luminance);
+  const gradientAccent = gradient
+    ? readable(mix(gradientTint, themeColor, .26), [foregroundLuminance], 4.5, gradientTint)
+    : background;
+  const surfaces = [background, paper, soft, gradientTint, gradientAccent].map(luminance);
   const text = readable(dark ? "#e9edf0" : "#28312c", surfaces, 4.5, foreground);
   return {
-    background, paper, soft, dark, text, gradientTint,
+    background, paper, soft, dark, text, gradientTint, gradientAccent,
     sidebar: mix(background, dark ? "#000000" : "#ffffff", dark ? .08 : .38),
     muted: readable(mix(text, background, .34), surfaces, 4.5, foreground),
     faint: readable(mix(text, background, .44), surfaces, 4.5, foreground),
     line: mix(text, background, .78),
     strongLine: mix(text, background, .62),
-    link: readable(/^#[0-9a-f]{6}$/i.test(accent) ? accent : "#718c7c", surfaces, 4.5, foreground),
+    link: readable(themeColor, surfaces, 4.5, foreground),
     danger: readable("#bf514b", surfaces, 4.5, foreground),
     income: readable("#4d8063", surfaces, 4.5, foreground),
     expense: readable("#a05f59", surfaces, 4.5, foreground),
