@@ -6,7 +6,10 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "序流",
     description: "个人工作、学习与生活管理系统",
     start_url: "/",
+    scope: "/",
     display: "standalone",
+    launch_handler: { client_mode: "focus-existing" },
+    protocol_handlers: [{ protocol: "web+xuliu", url: "/?widget-launch=%s" }],
     background_color: "#f4f6f2",
     theme_color: "#536b5e",
   };

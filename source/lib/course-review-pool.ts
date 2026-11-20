@@ -116,6 +116,14 @@ export function sameReviewCourse(left: string, right: string) {
   return reviewCourseKey(left) === reviewCourseKey(right);
 }
 
+export function reviewPoolCourseVisibility(courseList: readonly { title: string; ended?: boolean }[]) {
+  const ended = new Set(courseList.filter((course) => course.ended).map((course) => reviewCourseKey(course.title)));
+  for (const course of courseList) {
+    if (!course.ended) ended.delete(reviewCourseKey(course.title));
+  }
+  return (title: string) => !ended.has(reviewCourseKey(title));
+}
+
 export function deferStudyToReviewPool<T extends PoolState>(state: T, sourceId: string, draft: ReviewPoolTransferDraft, id: string, currentDate?: string): T {
   const pool = state.reviewPool;
   const source = state.milestones.find((node) => node.id === sourceId);

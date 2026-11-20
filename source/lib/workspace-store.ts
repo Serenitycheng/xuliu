@@ -10,6 +10,9 @@ export type WorkspaceRecord = {
 };
 
 const saveWorkspaceScript = `
+if #KEYS == 3 and redis.call("GET", KEYS[3]) ~= ARGV[3] then
+  return -2
+end
 local current = redis.call("GET", KEYS[1])
 local expected = tonumber(ARGV[1])
 if current then
@@ -76,18 +79,28 @@ export async function getWorkspaceRecord(ownerId: AccountId): Promise<WorkspaceR
   };
 }
 
-export async function saveWorkspaceData(ownerId: AccountId, data: unknown, baseRevision: number) {
+async function writeWorkspace(ownerId: AccountId, data: unknown, baseRevision: number, authorization?: { key: string; value: string }) {
   const updatedAt = new Date().toISOString();
   const record: WorkspaceRecord = { data, updatedAt, revision: baseRevision + 1 };
   const target = keys(ownerId);
   const revision = Number(await getRedis().eval(
     saveWorkspaceScript,
-    [target.workspace, target.history],
-    [String(baseRevision), JSON.stringify(record)],
+    [target.workspace, target.history, ...(authorization ? [authorization.key] : [])],
+    [String(baseRevision), JSON.stringify(record), ...(authorization ? [authorization.value] : [])],
   ));
-  return revision === -1
-    ? { status: "conflict" as const }
-    : { status: "applied" as const, revision, updatedAt };
+  return { revision, updatedAt };
+}
+
+export async function saveWorkspaceData(ownerId: AccountId, data: unknown, baseRevision: number) {
+  const result = await writeWorkspace(ownerId, data, baseRevision);
+  return result.revision < 0 ? { status: "conflict" as const } : { status: "applied" as const, ...result };
+}
+
+export async function saveDesktopWidgetWorkspace(data: unknown, baseRevision: number, authorization: { accountId: AccountId; key: string; value: string }) {
+  const result = await writeWorkspace(authorization.accountId, data, baseRevision, authorization);
+  if (result.revision === -2) return { status: "unauthorized" as const };
+  if (result.revision < 0) return { status: "conflict" as const };
+  return { status: "applied" as const, ...result };
 }
 
 export async function saveAiWorkspaceData(ownerId: AccountId, data: unknown, baseRevision: number, executionId: string) {

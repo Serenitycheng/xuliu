@@ -2,10 +2,11 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import DashboardClient, { type WorkspaceAccount } from "./DashboardClient";
+import DesktopWidgetSettings from "./DesktopWidgetSettings";
 
 type SessionInfo = { account: WorkspaceAccount; visibleAccounts: WorkspaceAccount[] };
 
-export default function AuthenticatedDashboard({ deploymentVersion }: { deploymentVersion: string }) {
+export default function AuthenticatedDashboard({ deploymentVersion, desktopWidget = false }: { deploymentVersion: string; desktopWidget?: boolean }) {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
@@ -47,7 +48,8 @@ export default function AuthenticatedDashboard({ deploymentVersion }: { deployme
   };
 
   if (loading) return <main className="authPage"><div className="authLoading"><span>序</span><p>正在打开你的空间…</p></div></main>;
-  if (session) return <DashboardClient account={session.account} visibleAccounts={session.visibleAccounts} onLogout={logout} deploymentVersion={deploymentVersion} />;
+  if (session) return desktopWidget ? <DesktopWidgetSettings accountName={session.account.displayName} />
+    : <DashboardClient account={session.account} visibleAccounts={session.visibleAccounts} onLogout={logout} deploymentVersion={deploymentVersion} />;
 
   return <main className="authPage"><section className="loginCard"><div className="loginBrand"><span>序</span><div><strong>序流</strong></div></div><div className="loginIntro"><p>PRIVATE WORKSPACE</p><h1>登录</h1></div><form onSubmit={login}><label><span>用户名</span><input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="输入用户名" /></label><label><span>密码</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="输入密码" /></label>{error && <p className="loginError">{error}</p>}<button className="loginButton" disabled={submitting}>{submitting ? "正在验证…" : "进入我的空间"}</button></form></section></main>;
 }

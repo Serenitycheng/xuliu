@@ -3,6 +3,7 @@ import type { AssessmentType } from "./course-events.ts";
 
 export type TaskMode = "single" | "multi";
 export type TaskProgressStatus = "未开始" | "进行中" | "已暂停" | "已完成";
+export type TaskProgressLog = { id: string; date: string; progress: number; status: TaskProgressStatus; note: string };
 
 export type TaskScheduleLike = {
   id?: string;
@@ -159,6 +160,15 @@ export function withWorkCompletionDates<T extends TaskScheduleLike & { id: strin
     });
   };
   return { ...next, tasks: update(previous.tasks, next.tasks), milestones: update(previous.milestones, next.milestones) };
+}
+
+export function setTaskCompleted<T extends TaskScheduleLike & { progressLogs?: TaskProgressLog[] }>(task: T, done: boolean, date: string, logId: string): T {
+  const logs = task.progressLogs ?? [];
+  const previous = logs.findLast((entry) => entry.progress < 100);
+  const progress = done ? 100 : previous?.progress ?? Math.min(taskProgressOf(task), 99);
+  const status: TaskProgressStatus = done ? "已完成" : progress > 0 ? "进行中" : "未开始";
+  const note = done ? "标记完成" : "重新打开任务";
+  return { ...task, done, progress, status, progressLogs: [...logs.slice(-1_999), { id: logId, date, progress, status, note }] };
 }
 
 export function taskModeOf(task: TaskScheduleLike): TaskMode {

@@ -12,7 +12,7 @@ import { CourseEventDialog } from "./CourseEventDialog";
 import { assessmentTypeLabel, assessmentTypeOptions, eventCourseChoices, eventCourseLabel, eventDateLabel, eventRequiresCompletion, migrateCourseEvents, scheduleHasElapsed } from "@/lib/course-events";
 import { isFormSaveEnter as isDialogSaveEnter, submitFormOnEnter } from "./form-keyboard";
 import { CourseReviewPoolDialog, DeferStudyDialog, ReviewPoolEntry, ReviewPoolToday } from "./CourseReviewPool";
-import { editedStudyToReviewPool, deleteReviewPoolItem, initializeCourseReviewPool, restoreReviewPoolItem, reviewPoolTodayCounts, updateReviewPoolItem, withoutReviewPoolSources, type CourseReviewPool, type ReviewPoolItem } from "@/lib/course-review-pool";
+import { editedStudyToReviewPool, deleteReviewPoolItem, initializeCourseReviewPool, restoreReviewPoolItem, reviewPoolCourseVisibility, reviewPoolTodayCounts, updateReviewPoolItem, withoutReviewPoolSources, type CourseReviewPool, type ReviewPoolItem } from "@/lib/course-review-pool";
 import FocusTimer, { usePomodoroTimer } from "./FocusTimer";
 import { defaultFocusSettings, descendantTasks, detachRemovedParents, entryMatches, parentError, type FocusSettings, type TimeEntry, type WorkTarget } from "@/lib/task-time";
 import { upload as uploadBlob } from "@vercel/blob/client";
@@ -30,7 +30,7 @@ import type { NodeAttachment } from "@/lib/course-node-attachments";
 import WebsiteCollection, { CollectionForm } from "./ToolCollections";
 import { toolCollectionFields, type ToolCollectionFields } from "@/lib/tool-collections";
 import { createInitialFinanceState, createPreviewFinanceState, localTimeKey, normalizeFinanceState, type FinanceState } from "@/lib/finance";
-import { advanceWorkForDate, cancelWorkForDate, courseNodeVisibleToday, defaultTaskPlannedDate, isPreparationEventTask, isTaskNode, newTaskPlannedDate, planTaskForDate, taskAwaitingStart, taskCompletionDate, taskDeadlineLabel, taskModeOf, taskOverlapsRange, taskProgressOf, taskScheduleSummary, taskScheduledForDate, taskStatusOf, taskStatusOptions, taskVisibleToday, withWorkCompletionDates, workDateChangeAllowed, workDateInputMinimum, type TaskMode, type TaskProgressStatus } from "@/lib/task-progress";
+import { advanceWorkForDate, cancelWorkForDate, courseNodeVisibleToday, defaultTaskPlannedDate, isPreparationEventTask, isTaskNode, newTaskPlannedDate, planTaskForDate, setTaskCompleted, taskAwaitingStart, taskCompletionDate, taskDeadlineLabel, taskModeOf, taskOverlapsRange, taskProgressOf, taskScheduleSummary, taskScheduledForDate, taskStatusOf, taskStatusOptions, taskVisibleToday, withWorkCompletionDates, workDateChangeAllowed, workDateInputMinimum, type TaskMode, type TaskProgressLog, type TaskProgressStatus } from "@/lib/task-progress";
 import "./task-scheduling.css";
 import "./task-settings.css";
 import "./calendar-navigation.css";
@@ -91,7 +91,6 @@ export type Block = {
 };
 type Milestone = CourseNode;
 type ReviewStudyDraft = { node: Milestone; edited?: boolean };
-type TaskProgressLog = { id: string; date: string; progress: number; status: TaskProgressStatus; note: string };
 type TaskItem = { parentId?: string; parentMilestoneId?: string; examEventId?: string; examSelectedDate?: string; courseId?: string; requirements?: string; attachments?: NodeAttachment[]; parentCandidate?: boolean; blocks?: Block[]; id: string; title: string; area: Area; source: string; due?: string; dueTime?: string; plannedDate?: string; progressedDates?: string[]; showOnCalendar?: boolean; dismissedTodayDate?: string; completedDate?: string; done: boolean; today: boolean; elapsed: number; mode?: TaskMode; startDate?: string; status?: TaskProgressStatus; progress?: number; progressLogs?: TaskProgressLog[] };
 type PageNode = { id: string; space: "thoughts" | "free"; parentId: string | null; title: string; kind: "folder" | "page"; blocks: Block[] };
 type CourseSlot = { id: string; weekday: number; start: string; end: string; location: string; weeks?: string; source?: "manual" | "pku" | "bit" | "ics" };
@@ -297,13 +296,7 @@ const defaultPaperTone = "#80674d";
 const formatClock = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 
 function withTaskCompletion(task: TaskItem, completed: boolean, at = today): TaskItem {
-  if (completed) {
-    return { ...task, done: true, status: "已完成", progress: 100, progressLogs: [...(task.progressLogs ?? []).slice(-1_999), { id: uid(), date: at, progress: 100, status: "已完成", note: "标记完成" }] };
-  }
-  const previous = [...(task.progressLogs ?? [])].reverse().find((entry) => entry.progress < 100);
-  const progress = previous?.progress ?? Math.min(taskProgressOf(task), 99);
-  const status: TaskProgressStatus = progress > 0 ? "进行中" : "未开始";
-  return { ...task, done: false, status, progress, progressLogs: [...(task.progressLogs ?? []).slice(-1_999), { id: uid(), date: at, progress, status, note: "重新打开任务" }] };
+  return setTaskCompleted(task, completed, at, uid());
 }
 
 function taskProgressDialog(task: TaskItem, setData: React.Dispatch<React.SetStateAction<AppState>>): NonNullable<DialogConfig> {
@@ -593,6 +586,40 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
     return () => { cancelled = true; };
   }, [workspaceOwner, account.id, onLogout, preview, previewAcademicCourses]);
   useEffect(() => {
+    if (preview || !loaded || readOnly) return;
+    const controller = new AbortController();
+    let inFlight = false;
+    const refreshFromCloud = async () => {
+      if (inFlight || document.hidden || dirtyRef.current || loadedWorkspaceRef.current !== workspaceOwner) return;
+      const epoch = saveEpochRef.current;
+      const edit = editVersionRef.current;
+      inFlight = true;
+      try {
+        const response = await fetch(`/api/state?owner=${workspaceOwner}`, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) return;
+        const result = await response.json();
+        if (controller.signal.aborted || dirtyRef.current || saveEpochRef.current !== epoch || editVersionRef.current !== edit
+          || !Number.isSafeInteger(result.revision) || result.revision <= cloudRevisionRef.current) return;
+        const hydrated = hydrateState(result.data ?? initialState, workspaceOwner === "owner");
+        cloudRevisionRef.current = result.revision;
+        if (!result.readOnly && clientNormalizationChanged(result.data, hydrated)) {
+          dirtyRef.current = true;
+          editVersionRef.current += 1;
+        }
+        setStoredData(hydrated);
+      } catch {
+        // A refresh must not interrupt editing or replace unsaved work.
+      } finally { inFlight = false; }
+    };
+    window.addEventListener("focus", refreshFromCloud);
+    document.addEventListener("visibilitychange", refreshFromCloud);
+    return () => {
+      controller.abort();
+      window.removeEventListener("focus", refreshFromCloud);
+      document.removeEventListener("visibilitychange", refreshFromCloud);
+    };
+  }, [loaded, preview, readOnly, workspaceOwner]);
+  useEffect(() => {
     if (preview || !loaded || readOnly || !dirtyRef.current) return;
     setSync("saving");
     const editVersion = editVersionRef.current;
@@ -757,7 +784,10 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
     if (readOnly) return;
     setData((current) => ({ ...current, milestones: current.milestones.map((node) => node.id === id ? updateExamReview(node, review, dateKey()) : node) }));
   };
-  const reviewToday = <ReviewPoolToday items={data.reviewPool?.items ?? []} today={reviewDate} readOnly={readOnly} onChange={changeReviewItem} onOpenItem={setReviewPoolOpen} />;
+  const reviewCourseVisible = reviewPoolCourseVisibility(data.courses);
+  const todayReviewItems = data.reviewPool?.items.filter((item) => reviewCourseVisible(item.course)) ?? [];
+  const reviewCounts = reviewPoolTodayCounts(todayReviewItems, reviewDate);
+  const reviewToday = <ReviewPoolToday items={todayReviewItems} today={reviewDate} readOnly={readOnly} onChange={changeReviewItem} onOpenItem={setReviewPoolOpen} />;
   const reviewEntry = <div className="reviewPoolEntries">{data.reviewPool && <ReviewPoolEntry onOpen={() => setReviewPoolOpen("")} />}<ExamReviewPoolEntry onOpen={() => setExamPoolOpen("")} /></div>;
   const todayTasks = taskListData.tasks.filter((task) => isLinkedExamReviewTask(task, data.milestones)
     ? !task.done || taskCompletionDate(task) === reviewDate
@@ -862,7 +892,7 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
   return <div className={"shell design-" + designMode} style={{ "--accent": interfaceColor } as React.CSSProperties}>
     <aside className={`sidebar ${mobileNav ? "open" : ""}`}><button className="brand" onClick={() => navigate("today")}><span className="brandMark">序</span><span>序流</span></button><DailyYiyan /><div className="navGroup">{navItems.slice(0, 5).map((item) => <NavButton key={item.id} {...item} active={active} onClick={navigate} />)}</div><div className="navCaption">我的空间</div><div className="navGroup">{navItems.slice(5).map((item) => <NavButton key={item.id} {...item} active={active} onClick={navigate} />)}</div><button className="exportButton" onClick={exportData}>导出数据备份</button><button className="refreshButton" disabled={sync === "saving"} onClick={() => void reloadForUpdate()}>{sync === "saving" ? "保存后可刷新" : "↻ 刷新应用"}</button><a className="changelogLink" href="/changelog" target="_blank" rel="noreferrer">更新日志 ↗</a>{!preview && <button className="logoutButton" onClick={onLogout}>退出登录</button>}<div className="sidebarFoot"><span className={`syncDot ${sync}`} />{sync === "saving" ? "正在保存" : sync === "readonly" ? "正在查看只读空间" : sync === "error" ? "云端连接异常" : sync === "preview" ? "本地预览 · 不会写入云端" : "已保存到云端"}</div></aside>
     <main className="main">{preview && <div className="readOnlyBanner">本地预览 · 刷新后重置</div>}<header className="mobileHeader"><button className="iconButton" aria-label="打开导航" onClick={() => setMobileNav(true)}>☰</button><strong>序流</strong><div className="mobileHeaderActions"><button className="iconButton refreshIconButton" disabled={sync === "saving"} aria-label="刷新应用" title="刷新应用" onClick={() => void reloadForUpdate()}>↻</button><span className={`syncDot ${sync}`} /></div></header>{updateAvailable && <div className="updateBanner"><span>网站已有新版本，为避免继续使用旧页面，请先刷新。</span><button disabled={sync === "saving"} onClick={() => void reloadForUpdate()}>{sync === "saving" ? "等待保存" : "立即刷新"}</button></div>}{readOnly && <div className="readOnlyBanner">正在查看 <strong>{visibleAccount.displayName}</strong> 的空间 · 只读</div>}{!loaded ? <div className="workspaceLoading">正在载入空间…</div> : <>{workDetail ? <TaskDetail key={`${workspaceOwner}:${workDetail.kind}:${workDetail.id}`} target={workDetail} data={data} setData={setData} access={{ ownerId: workspaceOwner, readOnly, preview }} onOpen={setWorkDetail} onClose={() => setWorkDetail(null)} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} /> : detail ? <DetailRouter target={detail} data={taskListData} setData={setData} back={() => setDetail(null)} openWork={setWorkDetail} setDialog={setDialog} deleteDialog={deleteDialog} access={{ ownerId: workspaceOwner, readOnly, preview }} /> : <>
-      {active === "today" && <TodayView onOpenIdeas={() => navigate("ideas")} onOpenExamPool={() => setExamPoolOpen("")} onOpenReviewPool={data.reviewPool ? () => setReviewPoolOpen("") : undefined} appearanceControls={<AppearanceMenu color={interfaceColor} presets={themePresets} designMode={designMode} onDesignChange={chooseDesignMode} onChange={chooseInterfaceColor} />} reviewToday={reviewToday} data={displayedData} setData={setData} tasks={todayTasks} milestones={todayCourseNodes} daily={daily} updateDaily={updateDaily} focusPanel={focusPanel} resetStudyPlan={resetStudyPlan} openWork={setWorkDetail} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} access={{ ownerId: workspaceOwner, readOnly, preview }} readOnly={readOnly} setPopup={setPopup} setDialog={setDialog} />}
+{active === "today" && <TodayView onOpenIdeas={() => navigate("ideas")} onOpenExamPool={() => setExamPoolOpen("")} onOpenReviewPool={data.reviewPool ? () => setReviewPoolOpen("") : undefined} appearanceControls={<AppearanceMenu color={interfaceColor} presets={themePresets} designMode={designMode} onDesignChange={chooseDesignMode} onChange={chooseInterfaceColor} />} reviewToday={reviewToday} reviewCounts={reviewCounts} data={displayedData} setData={setData} tasks={todayTasks} milestones={todayCourseNodes} daily={daily} updateDaily={updateDaily} focusPanel={focusPanel} resetStudyPlan={resetStudyPlan} openWork={setWorkDetail} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} access={{ ownerId: workspaceOwner, readOnly, preview }} readOnly={readOnly} setPopup={setPopup} setDialog={setDialog} />}
       {active === "timetable" && <TimetableViewV2 data={data} setData={setData} setDialog={setDialog} openCourse={(id) => setDetail({ type: "course", id })} deleteDialog={deleteDialog} dualSchool={workspaceOwner === "owner"} readOnly={readOnly} />}
       {active === "tasks" && <TaskOverviewView reviewPoolEntry={reviewEntry} data={displayedData} setData={setData} setDialog={setDialog} openWork={setWorkDetail} requestDelete={requestWorkDeletion} postponeWork={postponeWork} advanceWork={setAdvancingWork} cancelToday={cancelToday} access={{ ownerId: workspaceOwner, readOnly, preview }} readOnly={readOnly} />}
       {active === "calendar" && <CalendarView data={displayedData} setData={setData} setDialog={setDialog} openWork={setWorkDetail} readOnly={readOnly} />}
@@ -881,7 +911,7 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
         : { ...current, milestones: current.milestones.map((entry) => entry.id === advancingWork.id && isTaskNode(entry) ? advanceWorkForDate(entry, date, nextDate) : entry) });
       setAdvancingWork(null);
     }} />}
-    {reviewPoolOpen !== null && data.reviewPool && <CourseReviewPoolDialog key={reviewPoolOpen} items={data.reviewPool.items} courseNames={eventCourseChoices(data.courses).map((course) => course.title)} today={reviewDate} readOnly={readOnly} initialItemId={reviewPoolOpen} onClose={() => setReviewPoolOpen(null)} onChange={changeReviewItem} onDelete={(id) => { if (!readOnly) setData((current) => deleteReviewPoolItem(current, id)); }} onRestore={(item, index) => { if (!readOnly) setData((current) => restoreReviewPoolItem(current, item, index)); }} onCreate={(item) => { if (!readOnly) setData((current) => !current.reviewPool || current.reviewPool.items.length >= 500 || current.reviewPool.items.some((existing) => existing.id === item.id) ? current : { ...current, reviewPool: { ...current.reviewPool, items: [...current.reviewPool.items, item] } }); }} renderSources={(item) => <ReviewPoolSourceDetails item={item} data={data} access={{ ownerId: workspaceOwner, readOnly, preview }} />} />}
+    {reviewPoolOpen !== null && data.reviewPool && <CourseReviewPoolDialog key={reviewPoolOpen} items={data.reviewPool.items} isCourseVisible={reviewCourseVisible} courseNames={eventCourseChoices(data.courses).map((course) => course.title)} today={reviewDate} readOnly={readOnly} initialItemId={reviewPoolOpen} onClose={() => setReviewPoolOpen(null)} onChange={changeReviewItem} onDelete={(id) => { if (!readOnly) setData((current) => deleteReviewPoolItem(current, id)); }} onRestore={(item, index) => { if (!readOnly) setData((current) => restoreReviewPoolItem(current, item, index)); }} onCreate={(item) => { if (!readOnly) setData((current) => !current.reviewPool || current.reviewPool.items.length >= 500 || current.reviewPool.items.some((existing) => existing.id === item.id) ? current : { ...current, reviewPool: { ...current.reviewPool, items: [...current.reviewPool.items, item] } }); }} renderSources={(item) => <ReviewPoolSourceDetails item={item} data={data} access={{ ownerId: workspaceOwner, readOnly, preview }} />} />}
     {examPoolOpen !== null && !showExamTaskSettings && !dialog && <ExamReviewPoolDialog
       key={workspaceOwner + examPoolOpen} events={data.milestones} tasks={data.tasks} courses={data.courses} today={reviewDate} readOnly={readOnly}
       initialEventId={examPoolOpen} onClose={() => setExamPoolOpen(null)} onChange={changeExamReview}
@@ -1008,7 +1038,7 @@ function AutomaticStudyActions({ title, done, readOnly, plannedToday, onEdit, on
   </>;
 }
 
-function TodayView({ onOpenIdeas, onOpenReviewPool, onOpenExamPool, appearanceControls, reviewToday, data, setData, tasks, milestones, daily, updateDaily, focusPanel, resetStudyPlan, openWork, requestDelete, postponeWork, advanceWork, cancelToday, access, readOnly, setPopup, setDialog }: { onOpenIdeas: () => void; onOpenReviewPool?: () => void; onOpenExamPool: () => void; appearanceControls: React.ReactNode; reviewToday: React.ReactNode; data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; tasks: TaskItem[]; milestones: Milestone[]; daily: AppState["daily"][string]; updateDaily: (field: keyof AppState["daily"][string], value: string) => void; focusPanel: React.ReactNode; resetStudyPlan: () => void; openWork: (target: WorkTarget) => void; requestDelete: (target: WorkTarget, title: string) => void; postponeWork: (target: WorkTarget, days?: number) => void; advanceWork: (target: WorkTarget) => void; cancelToday: (target: WorkTarget) => void; access: EditorAccess; readOnly: boolean; setPopup: (value: PopupState) => void; setDialog: (value: DialogConfig) => void }) {
+function TodayView({ onOpenIdeas, onOpenReviewPool, onOpenExamPool, appearanceControls, reviewToday, reviewCounts, data, setData, tasks, milestones, daily, updateDaily, focusPanel, resetStudyPlan, openWork, requestDelete, postponeWork, advanceWork, cancelToday, access, readOnly, setPopup, setDialog }: { onOpenIdeas: () => void; onOpenReviewPool?: () => void; onOpenExamPool: () => void; appearanceControls: React.ReactNode; reviewToday: React.ReactNode; reviewCounts: ReturnType<typeof reviewPoolTodayCounts>; data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; tasks: TaskItem[]; milestones: Milestone[]; daily: AppState["daily"][string]; updateDaily: (field: keyof AppState["daily"][string], value: string) => void; focusPanel: React.ReactNode; resetStudyPlan: () => void; openWork: (target: WorkTarget) => void; requestDelete: (target: WorkTarget, title: string) => void; postponeWork: (target: WorkTarget, days?: number) => void; advanceWork: (target: WorkTarget) => void; cancelToday: (target: WorkTarget) => void; access: EditorAccess; readOnly: boolean; setPopup: (value: PopupState) => void; setDialog: (value: DialogConfig) => void }) {
   const today = dateKey();
   const [deferringNode, setDeferringNode] = useState<ReviewStudyDraft | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
@@ -1065,7 +1095,7 @@ function TodayView({ onOpenIdeas, onOpenReviewPool, onOpenExamPool, appearanceCo
     },
   ];
   const allTaskEntries = taskGroups.flatMap((group) => group.entries);
-  const { total: selectedReviewCount, completed: completedReviews } = reviewPoolTodayCounts(data.reviewPool?.items ?? [], today);
+  const { total: selectedReviewCount, completed: completedReviews } = reviewCounts;
   const automaticTasks = milestones.filter((node) => Boolean(node.automationKey));
   const toggleStudyPlan = () => setData((current) => {
     const enabled = !current.studyAutomation.enabled;

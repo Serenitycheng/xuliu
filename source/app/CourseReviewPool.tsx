@@ -227,11 +227,12 @@ function ReviewPoolRow({ item, today, readOnly, onChange, onDelete, onEdit, edit
   </li>;
 }
 
-export function CourseReviewPoolDialog({ items, today, readOnly, onChange, onCreate, onDelete, onRestore, courseNames, onClose, renderSources, initialItemId }: ReviewPoolProps & {
+export function CourseReviewPoolDialog({ items, today, readOnly, onChange, onCreate, onDelete, onRestore, courseNames, isCourseVisible, onClose, renderSources, initialItemId }: ReviewPoolProps & {
   onCreate: (item: ReviewPoolItem) => void;
   onDelete: (id: string) => void;
   onRestore: (item: ReviewPoolItem, index: number) => void;
   courseNames: string[];
+  isCourseVisible: (course: string) => boolean;
   onClose: () => void;
   renderSources?: (item: ReviewPoolItem) => ReactNode;
   initialItemId?: string;
@@ -251,6 +252,7 @@ export function CourseReviewPoolDialog({ items, today, readOnly, onChange, onCre
   const [expanded, setExpanded] = useState(() => new Set(initialItemId ? [initialItemId] : []));
   const courses = new Map<string, ReviewPoolItem[]>();
   for (const item of items) {
+    if (!isCourseVisible(item.course)) continue;
     const courseItems = courses.get(item.course);
     if (courseItems) courseItems.push(item);
     else courses.set(item.course, [item]);
@@ -292,6 +294,7 @@ export function CourseReviewPoolDialog({ items, today, readOnly, onChange, onCre
       {adding && !readOnly && <form className="reviewPoolAddForm" onKeyDown={submitFormOnEnter} onSubmit={(event) => {
         event.preventDefault();
         try {
+          if (!isCourseVisible(draft.course)) throw new Error("该课程已结课");
           const item = createReviewPoolItem(items, draft, crypto.randomUUID());
           onCreate(item);
           setDraft({ course: item.course, chapter: "", note: "" });
@@ -310,7 +313,10 @@ export function CourseReviewPoolDialog({ items, today, readOnly, onChange, onCre
         <h3>{course}</h3>
         <ul className="reviewPoolList">{courseItems.map((item) => <ReviewPoolRow key={item.id} item={item} today={today} readOnly={readOnly} onChange={onChange}
           onEdit={() => { setAdding(false); setEditingId(item.id); }}
-          editForm={editingId === item.id && !readOnly ? <ReviewPoolItemEditor item={item} items={items} courseNames={courseNames} onCancel={() => { setEditingId(null); setFocusItemId(item.id); }} onSave={(names) => { onChange(item.id, names); setEditingId(null); setFocusItemId(item.id); }} /> : undefined}
+          editForm={editingId === item.id && !readOnly ? <ReviewPoolItemEditor item={item} items={items} courseNames={courseNames} onCancel={() => { setEditingId(null); setFocusItemId(item.id); }} onSave={(names) => {
+            if (!isCourseVisible(names.course)) throw new Error("该课程已结课");
+            onChange(item.id, names); setEditingId(null); setFocusItemId(item.id);
+          }} /> : undefined}
           onDelete={() => { setRemoved({ item, index: items.findIndex((current) => current.id === item.id) }); setUndoError(""); onDelete(item.id); }}
           expanded={expanded.has(item.id)} initialFocusRef={(focusItemId ?? removed?.item.id ?? initialItemId) === item.id ? initialFocusRef : undefined} renderSources={renderSources}
           onToggle={() => setExpanded((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} />)}</ul>
