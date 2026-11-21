@@ -74,6 +74,13 @@ test("desktop credential scopes and Spacedash origins are strictly separated", (
   assert.equal(parseDesktopCredential(token, "xdt1").hash.length, 64);
   assert.notEqual(parseDesktopCredential(code, "xdp1").hash, parseDesktopCredential(token, "xdt1").hash);
   assert.equal(parseDesktopCredential(code, "xdt1"), null);
+  const yiyanCode = createDesktopCredential("xyp1", "owner");
+  const yiyanToken = createDesktopCredential("xyt1", "owner");
+  assert.equal(parseDesktopCredential(yiyanCode, "xyp1").accountId, "owner");
+  assert.equal(parseDesktopCredential(yiyanToken, "xyt1").accountId, "owner");
+  assert.equal(parseDesktopCredential(yiyanCode, "xdp1"), null);
+  assert.equal(parseDesktopCredential(yiyanToken, "xdt1"), null);
+  assert.equal(parseDesktopCredential(token, "xyt1"), null);
   assert.equal(parseDesktopCredential(token.replace(".owner.", ".other."), "xdt1"), null);
   assert.equal(desktopWidgetOrigin("http://w-0af.localhost:57140"), "http://w-0af.localhost:57140");
   for (const origin of [null, "null", "http://localhost:57140", "https://w-123.localhost:57140", "http://w-123.localhost:57141", "http://w-123.localhost:57140.evil.test"]) {

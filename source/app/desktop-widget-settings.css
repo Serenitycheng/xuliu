@@ -1,8 +1,10 @@
 .widgetSettings { display: grid; gap: .85rem; }
 .widgetSettings h1, .widgetSettings p { margin: 0; }
 .widgetSettings > a { justify-self: start; color: inherit; }
-.widgetSettings > p { font-size: .94rem; line-height: 1.55; }
+.widgetSettings p { font-size: .94rem; line-height: 1.55; }
+.widgetAuthorization { display: grid; gap: .6rem; border-top: 1px solid currentColor; padding-top: .85rem; }
+.widgetAuthorization h2 { margin: 0; font-size: 1.05rem; }
 .widgetSettingsCode { display: flex; align-items: center; gap: .5rem; }
 .widgetSettingsCode input { flex: 1; min-width: 0; padding: .55rem; font: inherit; }
 .widgetSettingsNotice:empty { display: none; }
-.widgetSettings > .textButton { justify-self: start; }
+.widgetAuthorization > .textButton { justify-self: start; }

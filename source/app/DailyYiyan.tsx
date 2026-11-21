@@ -9,7 +9,7 @@ import YiyanBackdrop from "./YiyanBackdrop";
 import { prefetchYiyanImage, type YiyanImageStatus } from "@/lib/yiyan-image";
 function storage() { try { return window.localStorage; } catch { return undefined; } }
 
-export default function DailyYiyan() {
+export default function DailyYiyan({ desktopAuthorizationHref }: { desktopAuthorizationHref?: string } = {}) {
   const [quote, setQuote] = useState<YiyanCard | null>(null);
   const [connected, setConnected] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -178,13 +178,16 @@ export default function DailyYiyan() {
     {settingsOpen && <div className="quoteConnectionActions"><button type="button" className="quoteTextButton" disabled={!quote || Boolean(busy)} onClick={() => openLibrary("choose")}>收藏到其他文集</button><button type="button" className="quoteTextButton" disabled={Boolean(busy)} onClick={() => openLibrary("browse")}>打开文集</button><label className="quoteImageClarity">配图清晰度 <output>{imageClarity}%</output><input type="range" min="0" max="100" step="5" aria-label="配图清晰度" value={imageClarity} onChange={event => { const value = Number(event.target.value); setImageClarity(value); saveYiyanImageClarity(value, storage()); }} /></label><button type="button" className="quoteTextButton" disabled={Boolean(busy)} onClick={() => { setLoginOpen(true); setSettingsOpen(false); }}>{connected ? "切换一言账号" : "连接一言"}</button>{connected && <button type="button" className="quoteTextButton" disabled={Boolean(busy)} onClick={disconnect}>断开一言</button>}</div>}
     {settingsOpen && quote && (!quote.image || imageStatus !== "ready") && <div className="quoteConnectionActions" role="status"><span>{!quote.image ? "暂未取得原图" : imageStatus === "error" ? "原图加载失败" : "原图加载中…"}</span>{quote.image && imageStatus === "error" && <button type="button" className="quoteTextButton" onClick={() => { setImageStatus("loading"); setImageRetry(value => value + 1); }}>重试原图</button>}</div>}
     {!quote && !connected && !checking && !loginOpen && !settingsOpen && <button type="button" className="quoteConnectButton" onClick={() => setLoginOpen(true)}>连接一言</button>}
-    {loginOpen && <form className="quoteLogin" onSubmit={event => { event.preventDefault(); if (codeSent) signIn(); else sendCode(); }}>
+    {loginOpen && (desktopAuthorizationHref ? <div className="quoteConnectionActions">
+      <a className="quoteTextButton" href={desktopAuthorizationHref} target="_blank" rel="noopener noreferrer">去序流管理一言连接 ↗</a>
+      <button type="button" className="quoteTextButton" onClick={() => setLoginOpen(false)}>取消</button>
+    </div> : <form className="quoteLogin" onSubmit={event => { event.preventDefault(); if (codeSent) signIn(); else sendCode(); }}>
       <label>手机号<input type="tel" autoComplete="off" inputMode="tel" maxLength={11} value={phone} onChange={event => setPhone(event.target.value.replace(/\D/g, ""))} required pattern="1[3-9][0-9]{9}" /></label>
       {codeSent && <label>验证码<input autoComplete="one-time-code" inputMode="numeric" value={code} maxLength={8} onChange={event => setCode(event.target.value.replace(/\D/g, ""))} required pattern="[0-9]{4,8}" /></label>}
       <button type="submit" className="quoteConnectButton" disabled={Boolean(busy)}>{busy === "sign-in" ? "正在连接…" : busy === "send" ? "正在发送…" : codeSent ? "连接" : "获取验证码"}</button>
       {codeSent && <button type="button" className="quoteTextButton" disabled={Boolean(busy) || remaining > 0} onClick={sendCode}>{remaining > 0 ? `${remaining} 秒后可重发` : "重新发送"}</button>}
       <button type="button" className="quoteTextButton" disabled={Boolean(busy)} onClick={() => { setLoginOpen(false); setPhone(""); setCode(""); }}>取消</button>
-    </form>}
+    </form>)}
     {notice && <p className="sidebarQuoteNotice" role="status">{notice}</p>}
     {pendingFavorite && <button type="button" className="quoteTextButton" disabled={Boolean(busy)} onClick={() => favorite(true)}>检查收藏结果</button>}
     {libraryMode && <YiyanLibrary mode={libraryMode} quote={quote} defaultCollected={Boolean(quote && defaultSaved.has(quote.id))} onClose={() => setLibraryMode(null)} onFavorite={favoriteDone} onReconnect={() => { setLibraryMode(null); keepQuoteAfterLogin.current = true; setLoginOpen(true); }} />}
