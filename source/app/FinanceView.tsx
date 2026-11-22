@@ -73,9 +73,14 @@ function dayLabel(value: string) {
 }
 
 function calendarAmount(cents: number) {
-  const yuan = cents / 100;
-  if (yuan >= 1000) return `${Number((yuan / 1000).toFixed(1))}k`;
-  return String(Number(yuan.toFixed(2)));
+  const yuan = Math.abs(cents) / 100;
+  const amount = yuan >= 1000 ? `${Number((yuan / 1000).toFixed(1))}k` : String(Number(yuan.toFixed(2)));
+  const sign = cents < 0 ? "−" : cents > 0 ? "+" : "";
+  return `${sign}${amount}`;
+}
+
+function netAmountClass(cents: number) {
+  return cents < 0 ? "expenseText" : cents > 0 ? "incomeText" : undefined;
 }
 
 export default function FinanceView({ finance, readOnly, projectOptions, onChange, getWorkspaceBytes }: FinanceViewProps) {
@@ -387,16 +392,16 @@ export default function FinanceView({ finance, readOnly, projectOptions, onChang
           {Array.from({ length: calendarDays }, (_, index) => {
             const day = `${selectedMonth}-${String(index + 1).padStart(2, "0")}`;
             const entries = entriesByDay[day] || [];
-            const expense = entries.reduce((sum, entry) => sum + (entry.type === "expense" ? entry.amountCents : 0), 0);
-            const income = entries.reduce((sum, entry) => sum + (entry.type === "income" ? entry.amountCents : 0), 0);
+            const { expenseCents, incomeCents, netCents } = financeSummary(entries, day);
             const topup = entries.reduce((sum, entry) => sum + (entry.type === "topup" ? entry.amountCents : 0), 0);
-            return <button key={day} type="button" className={activeDay === day ? "active" : ""} aria-pressed={activeDay === day} aria-label={`${dayLabel(day)}，支出 ${formatCny(expense)}，收入 ${formatCny(income)}，储值充值 ${formatCny(topup)}，${entries.length} 笔记录`} onClick={() => setSelectedDay(day)}>
-              <strong>{index + 1}</strong><small className={expense ? "expenseText" : income ? "incomeText" : "storedValueText"}>{expense ? calendarAmount(expense) : income ? `+${calendarAmount(income)}` : topup ? "储值" : ""}</small>
+            const hasCashFlow = expenseCents > 0 || incomeCents > 0;
+            return <button key={day} type="button" className={activeDay === day ? "active" : ""} aria-pressed={activeDay === day} aria-label={`${dayLabel(day)}，收入 ${formatCny(incomeCents)}，支出 ${formatCny(expenseCents)}，结余 ${formatSignedCny(netCents)}，储值充值 ${formatCny(topup)}，${entries.length} 笔记录`} onClick={() => setSelectedDay(day)}>
+              <strong>{index + 1}</strong><small className={hasCashFlow ? netAmountClass(netCents) : "storedValueText"}>{hasCashFlow ? calendarAmount(netCents) : topup ? "储值" : ""}</small>
             </button>;
           })}</div>
         {activeDay && !readOnly && <div className="financeCalendarActions"><span>为 {dayLabel(activeDay)} 记账</span><button type="button" className="primaryButton" onClick={() => openCreate("expense", activeDay)}>＋ 记一笔</button></div>}
       </div>
-      {activeDay && <div className="financeSelectedDay"><div className="financeSelectedDayHead"><div><strong>{dayLabel(activeDay)}</strong><span>{activeDayEntries.length} 笔记录</span></div><div><span>支出 <b className="expenseText">{formatCny(activeDaySummary.expenseCents)}</b></span><span>收入 <b className="incomeText">{formatCny(activeDaySummary.incomeCents)}</b></span><span>结余 <b>{formatSignedCny(activeDaySummary.netCents)}</b></span></div></div>
+      {activeDay && <div className="financeSelectedDay"><div className="financeSelectedDayHead"><div><strong>{dayLabel(activeDay)}</strong><span>{activeDayEntries.length} 笔记录</span></div><div><span>支出 <b className="expenseText">{formatCny(activeDaySummary.expenseCents)}</b></span><span>收入 <b className="incomeText">{formatCny(activeDaySummary.incomeCents)}</b></span><span>结余 <b className={netAmountClass(activeDaySummary.netCents)}>{formatSignedCny(activeDaySummary.netCents)}</b></span></div></div>
         {activeDayEntries.length ? <div className="financeSelectedDayEntries">{activeDayEntries.map((entry) => renderEntry(entry))}</div> : <div className="financeEmpty financeSelectedDayEmpty">这一天没有符合条件的收支记录。</div>}
       </div>}
 
