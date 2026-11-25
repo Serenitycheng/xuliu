@@ -5,9 +5,19 @@ import "./desktop-widget-settings.css";
 
 const taskAuthorization = "/api/desktop-widget/authorization";
 const yiyanAuthorization = "/api/yiyan/desktop/authorization";
+const authorizationDetails = {
+  tasks: { name: "序流 · 当下", codeLabel: "当下桌面配对码", endpoint: taskAuthorization,
+    help: "授权后，桌面组件可以查看今日任务和近期截止，并勾选任务。授权长期有效，可在这里撤销。重新配对会替换原授权。" },
+  yiyan: { name: "一言 · YAN", codeLabel: "一言桌面配对码", endpoint: yiyanAuthorization,
+    help: "授权后，桌面组件可以换句、看原图、浏览文集和收藏。授权随配对时的一言登录到期，可单独撤销。" },
+  collectionbox: { name: "序流 · CollectionBox", codeLabel: "CollectionBox 桌面配对码",
+    endpoint: `${taskAuthorization}?widget=collectionbox`,
+    help: "授权后，桌面组件可以浏览网站合集、整理链接，并在序流里新增灵感。可在这里单独撤销授权。" },
+};
 
-function AuthorizationPanel({ yiyan = false }: { yiyan?: boolean }) {
-  const endpoint = yiyan ? yiyanAuthorization : taskAuthorization;
+function AuthorizationPanel({ widget }: { widget: keyof typeof authorizationDetails }) {
+  const { endpoint, name, codeLabel, help } = authorizationDetails[widget];
+  const yiyan = widget === "yiyan";
   const [connected, setConnected] = useState<boolean | null>(null);
   const [canPair, setCanPair] = useState<boolean | null>(null);
   const [code, setCode] = useState("");
@@ -66,15 +76,13 @@ function AuthorizationPanel({ yiyan = false }: { yiyan?: boolean }) {
     }
   }
 
-  return <section className="widgetAuthorization" id={yiyan ? "yiyan" : undefined}>
-      <h2>{yiyan ? "一言 · YAN" : "序流 · 当下"}</h2>
+  return <section className="widgetAuthorization" id={widget}>
+      <h2>{name}</h2>
       <p>{connected === null ? "正在读取授权状态…" : connected ? "已授权" : "未授权"}</p>
-      <p>{yiyan
-        ? "授权后，桌面组件可以换句、看原图、浏览文集和收藏。授权随配对时的一言登录到期，可单独撤销。"
-        : "授权后，桌面组件可以查看今日任务和近期截止，并勾选任务。授权长期有效，可在这里撤销。重新配对会替换原授权。"}</p>
+      <p>{help}</p>
       {yiyan && canPair === false && <p><a href="/">去序流侧栏登录一言</a>后再回来配对。</p>}
       <button type="button" className="loginButton" disabled={busy || (yiyan && canPair === false)} onClick={() => void changeAuthorization("POST")}>生成配对码</button>
-      {code && <div className="widgetSettingsCode"><input ref={field} aria-label={yiyan ? "一言桌面配对码" : "当下桌面配对码"} value={code} readOnly autoComplete="off" spellCheck={false} />
+      {code && <div className="widgetSettingsCode"><input ref={field} aria-label={codeLabel} value={code} readOnly autoComplete="off" spellCheck={false} />
         <button type="button" className="softButton" onClick={() => void copyCode()}>复制</button></div>}
       <p className="widgetSettingsNotice" role="status">{notice}</p>
       {connected !== false && <button type="button" className="textButton" disabled={busy} onClick={() => void changeAuthorization("DELETE")}>撤销桌面授权</button>}
@@ -87,8 +95,9 @@ export default function DesktopWidgetSettings({ accountName }: { accountName: st
       <a href="/">← 返回序流</a>
       <h1>桌面组件授权</h1>
       <p>{accountName}</p>
-      <AuthorizationPanel />
-      <AuthorizationPanel yiyan />
+      <AuthorizationPanel widget="tasks" />
+      <AuthorizationPanel widget="yiyan" />
+      <AuthorizationPanel widget="collectionbox" />
     </section>
   </main>;
 }
