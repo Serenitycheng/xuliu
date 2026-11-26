@@ -4,6 +4,7 @@ import { applyCollectionBoxAction, collectionBoxView, type CollectionBoxAction }
 import { desktopWidgetOrigin } from "@/lib/desktop-widget-credential";
 import { redeemDesktopPairing, verifyDesktopAuthorization } from "@/lib/desktop-widget-store";
 import { desktopWidgetDate } from "@/lib/desktop-widget-view";
+import { MAX_IDEA_LINKS } from "@/lib/idea-pool";
 import { createEmptyWorkspaceState, workspaceStateSchema } from "@/lib/workspace-state-schema";
 import { getWorkspaceRecord, saveDesktopWidgetWorkspace } from "@/lib/workspace-store";
 
@@ -17,6 +18,9 @@ const payload = z.object({
   revision: z.number().int().nonnegative(),
   action: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("idea"), title }).strict(),
+    z.object({ kind: z.literal("saveIdea"), ideaId: key.optional(), title, note: z.string().max(4_000),
+      links: z.array(z.string().trim().min(1).max(2_000)).max(MAX_IDEA_LINKS), groupId: key.nullable() }).strict(),
+    z.object({ kind: z.literal("removeIdea"), ideaId: key }).strict(),
     z.object({ kind: z.literal("category"), title }).strict(),
     z.object({ kind: z.literal("save"), categoryId: key, websiteId: key.optional(), fromId: key.optional(),
       title, url: z.string().trim().min(1).max(2000), description: z.string().trim().max(500) }).strict(),
@@ -86,7 +90,7 @@ export function PATCH(request: Request) {
     if (input.data.revision !== revision) return reply(origin, 409, { status: "conflict" });
     const parsed = input.data.action;
     let action: CollectionBoxAction;
-    if (parsed.kind === "idea") {
+    if (parsed.kind === "idea" || parsed.kind === "saveIdea") {
       const date = desktopWidgetDate(new URL(request.url).searchParams.get("timezone") ?? "");
       if (!date) return reply(origin, 400, { status: "invalid_timezone" });
       action = { ...parsed, date };
@@ -94,7 +98,7 @@ export function PATCH(request: Request) {
       action = parsed;
     }
     const next = applyCollectionBoxAction(data, action, randomUUID());
-    if (next.status !== "applied") return reply(origin, next.status === "invalid_url" ? 400 : 409, { status: next.status });
+    if (next.status !== "applied") return reply(origin, next.status === "invalid_url" || next.status === "invalid_input" ? 400 : 409, { status: next.status });
     const result = await saveDesktopWidgetWorkspace(next.data, revision, authorization);
     if (result.status === "unauthorized") return reply(origin, 401, { status: "pair_required" });
     if (result.status === "conflict") return reply(origin, 409, { status: "conflict" });

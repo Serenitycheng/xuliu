@@ -3,6 +3,7 @@ import { STUDY_AUTOMATION_RULE_VERSION } from "./study-task-automation.ts";
 import { createInitialFinanceState, isValidLocalDate, isValidLocalTime, isValidMonthKey } from "./finance.ts";
 import { parentError } from "./task-time.ts";
 import { MAX_COLLECTION_WEBSITES, normalizeWebsiteUrl } from "./tool-collections.ts";
+import { MAX_IDEA_GROUPS, MAX_IDEA_LINKS, MAX_IDEAS } from "./idea-pool.ts";
 
 const id = z.string().min(1).max(120);
 const text = z.string().max(4_000);
@@ -193,7 +194,11 @@ export const workspaceStateSchema = z.object({
     id, title: shortText, status: researchStatus, summary: text, objective: text, next: text, progress: z.number().int().min(0).max(100),
     pages: z.array(z.object({ id, title: shortText, blocks: z.array(block).max(2_000) }).strict()).min(1).max(2_000),
   }).strict()).max(2_000),
-  ideas: z.array(z.object({ id, title: shortText, note: text, createdAt: z.string().max(80) }).strict()).max(10_000),
+  ideas: z.array(z.object({
+    id, title: shortText, note: text, createdAt: z.string().max(80), groupId: id.optional(),
+    links: z.array(z.string().max(2_000).refine((url) => normalizeWebsiteUrl(url) === url)).max(MAX_IDEA_LINKS).optional(),
+  }).strict()).max(MAX_IDEAS),
+  ideaGroups: z.array(z.object({ id, title: shortText.trim().min(1) }).strict()).max(MAX_IDEA_GROUPS).optional(),
   tools: z.array(z.object({
     id, title: shortText, status: shortText, description: text, url: z.string().max(2_000), version: shortText,
     kind: z.enum(["tool", "collection"]).optional(),

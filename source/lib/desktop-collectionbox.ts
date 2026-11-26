@@ -1,5 +1,6 @@
 import type { output } from "zod";
 import { MAX_COLLECTION_WEBSITES, normalizeWebsiteUrl } from "./tool-collections.ts";
+import { applyIdeaPoolAction, type IdeaPoolAction } from "./idea-pool.ts";
 import type { workspaceStateSchema } from "./workspace-state-schema.ts";
 
 type Workspace = output<typeof workspaceStateSchema>;
@@ -7,6 +8,7 @@ type Collection = Workspace["tools"][number];
 
 export type CollectionBoxAction =
   | { kind: "idea"; title: string; date: string }
+  | Extract<IdeaPoolAction, { kind: "saveIdea" | "removeIdea" }>
   | { kind: "category"; title: string }
   | { kind: "save"; categoryId: string; websiteId?: string; fromId?: string; title: string; url: string; description: string }
   | { kind: "remove"; categoryId: string; websiteId: string };
@@ -14,6 +16,7 @@ export type CollectionBoxAction =
 export function collectionBoxView(data: Workspace, revision: number) {
   return {
     revision,
+    ideaPool: { ideas: data.ideas, groups: data.ideaGroups ?? [] },
     categories: data.tools.filter(({ kind }) => kind === "collection").map(({ id, title, websites }) => ({
       id, title, websites: websites ?? [],
     })),
@@ -25,10 +28,10 @@ export function applyCollectionBoxAction(data: Workspace, action: CollectionBoxA
     return { status: "applied" as const, data: { ...data, tools }, categoryId };
   }
 
-  if (action.kind === "idea") {
-    if (data.ideas.length >= 10000) return { status: "full" as const };
-    const ideas = [{ id, title: action.title, note: "", createdAt: action.date }, ...data.ideas];
-    return { status: "applied" as const, data: { ...data, ideas }, categoryId: undefined };
+  if (action.kind === "idea" || action.kind === "saveIdea" || action.kind === "removeIdea") {
+    const ideaAction = action.kind === "idea" ? { ...action, kind: "saveIdea" as const, note: "", links: [], groupId: null } : action;
+    const result = applyIdeaPoolAction(data, ideaAction, id);
+    return result.status === "applied" ? { ...result, categoryId: undefined } : result;
   }
 
   if (action.kind === "category") {

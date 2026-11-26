@@ -1,0 +1,32 @@
+.ideaPoolHead { align-items: center; }
+.ideaPoolControls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ideaPoolGroups { padding: 0 15px; overflow: visible; }
+.ideaPoolGroup + .ideaPoolGroup { border-top: 1px solid var(--line); }
+.ideaPoolGroupHead { display: flex; align-items: center; gap: 4px; min-height: 43px; }
+.ideaPoolToggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 8px 4px; color: inherit; background: transparent; border: 0; text-align: left; font-weight: 700; }
+.ideaPoolToggle span { overflow-wrap: anywhere; }
+.ideaPoolToggle::before { content: ""; flex: none; width: 6px; height: 6px; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); }
+.ideaPoolToggle[aria-expanded="true"]::before { transform: translateY(-2px) rotate(45deg); }
+.ideaPoolItems { margin: 0 0 7px; padding: 0 0 0 15px; list-style: none; }
+.ideaPoolItem { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line); padding: 7px 0; min-height: 36px; }
+.ideaPoolItemContent { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.ideaPoolItemContent strong { font-size: 13px; line-height: 21px; }
+.ideaPoolItemContent p, .ideaPoolEmpty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+.ideaPoolEmpty { padding: 0 0 10px 15px; }
+.ideaPoolLinks { display: flex; gap: 4px 13px; flex-wrap: wrap; font-size: 11px; }
+.ideaPoolLinks a { max-width: 100%; color: var(--appearance-link, var(--accent)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ideaPoolOptions { position: relative; flex: none; }
+.ideaPoolOptions summary, .ideaPoolSmallButton { display: grid; place-items: center; width: 26px; height: 25px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); list-style: none; cursor: pointer; }
+.ideaPoolOptions summary::-webkit-details-marker { display: none; }
+.ideaPoolOptions summary:hover, .ideaPoolSmallButton:hover, .ideaPoolActions button:hover:not(:disabled) { background: var(--appearance-soft, #f3f5f2); }
+.ideaPoolActions { position: absolute; top: 100%; right: 0; z-index: 3; display: grid; min-width: 110px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--appearance-surface, white); box-shadow: var(--shadow); }
+.ideaPoolActions button { padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; color: inherit; text-align: left; white-space: nowrap; font-size: 12px; }
+.ideaPoolActions button:disabled { opacity: .42; }
+.ideaPoolActions .ideaPoolDanger, .ideaPoolError { color: var(--appearance-expense, #a05f59); }
+.ideaPoolError { font-size: 12px; margin: 0 0 10px; }
+.ideaPoolEditor { display: grid; gap: 9px; padding: 14px; margin-bottom: 12px; }
+.ideaPoolEditor label { display: grid; gap: 4px; font-size: 12px; }
+.ideaPoolEditor :is(input, select, textarea) { min-width: 0; width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; color: inherit; background: var(--appearance-soft, #f3f5f2); }
+.ideaPoolEditor textarea { resize: vertical; }
+.ideaPoolEditor .ideaPoolControls { justify-content: flex-end; }
+@media (max-width: 680px) { .ideaPoolGroups { padding-inline: 9px; } .ideaPoolItems { padding-left: 12px; } }

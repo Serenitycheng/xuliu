@@ -325,8 +325,6 @@ a { color: inherit; }
 .areaTag.work, .calendarEvent.work { color: #7b6847; background: var(--appearance-soft, #f3eee4); }
 .areaTag.life, .calendarEvent.life { color: var(--appearance-muted, #80616c); background: var(--appearance-soft, #f3e9ee); }
 .areaTag.thought, .calendarEvent.thought { color: var(--appearance-muted, #526e60); background: var(--appearance-soft, #e7efe9); }
-.ideaCapture input { width: 100%; padding: 12px 13px; border: 0; border-radius: 10px; background: var(--appearance-soft, #f3f5f2); font-size: 13px; }
-.ideaCapture button { padding: 0 17px; border: 0; border-radius: 10px; color: white; background: var(--accent); font-size: 12px; font-weight: 700; }
 .focusPanel { border-color: var(--accent); color: white; background: var(--accent); text-align: center; }
 .modeSwitch { display: inline-grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 10px; background: rgba(255,255,255,.12); }
 .modeSwitch button { padding: 7px 12px; border: 0; border-radius: 8px; color: rgba(255,255,255,.7); background: transparent; font-size: 11px; }
@@ -410,14 +408,6 @@ a { color: inherit; }
 .toolCard .toolMark { display: inline-grid; }
 .toolCard .statusPill { margin-left: 9px; vertical-align: top; }
 
-.ideaCapture { margin-bottom: 18px; padding: 7px; display: grid; grid-template-columns: 1fr auto; gap: 9px; border: 1px solid var(--line); border-radius: 14px; background: var(--appearance-surface, white); box-shadow: var(--shadow); }
-.ideaList { display: grid; gap: 14px; }
-.ideaCard { padding: 21px; }
-.ideaCard > span { color: var(--muted); font-size: 10px; }
-.ideaTitle { margin-top: 8px; display: flex; gap: 10px; align-items: center; }
-.ideaTitle input { flex: 1; padding: 4px 0; border: 0; background: transparent; font-size: 18px; font-weight: 730; }
-.ideaTitle button { border: 0; color: #9b6666; background: transparent; font-size: 11px; }
-.ideaCard textarea { width: 100%; min-height: 68px; padding: 8px 0 0; border: 0; color: var(--muted); background: transparent; resize: vertical; font-size: 13px; line-height: 1.65; }
 
 .lifePage { max-width: 1120px; }
 .lifeSection { margin-top: 42px; }
