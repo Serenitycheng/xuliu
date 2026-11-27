@@ -1,9 +1,9 @@
 import { isValidLocalDate } from "./finance.ts";
 import { normalizeReviewChapter, reviewChapterKey } from "./review-chapter.ts";
-import { taskCompletionDate, taskProgressOf, taskStatusOf, type TaskScheduleLike } from "./task-progress.ts";
+import { type TaskScheduleLike } from "./task-progress.ts";
 
 export type ReviewPoolSource = { kind: "task" | "milestone"; id: string };
-export type ReviewPoolStep = { id: string; title: string; done: boolean; selectedDate?: string; completedDate?: string };
+export type ReviewPoolStep = { id: string; title: string; done: boolean; selectedDate?: string; completedDate?: string; archived?: true };
 export type ReviewPoolItem = {
   id: string;
   course: string;
@@ -14,6 +14,7 @@ export type ReviewPoolItem = {
   previousProgress?: number;
   selectedDate?: string;
   completedDate?: string;
+  archived?: true;
   sources: ReviewPoolSource[];
   steps?: ReviewPoolStep[];
 };
@@ -26,7 +27,7 @@ function validReviewPoolSteps(value: unknown): value is ReviewPoolStep[] {
   const ids = new Set<string>();
   for (const step of value) {
     if (!step || typeof step !== "object" || typeof step.id !== "string" || !step.id || step.id.length > 120 || ids.has(step.id)
-      || typeof step.title !== "string" || !step.title.trim() || step.title.length > 500 || typeof step.done !== "boolean"
+      || typeof step.title !== "string" || !step.title.trim() || step.title.length > 500 || typeof step.done !== "boolean" || step.archived !== undefined && step.archived !== true
       || step.selectedDate !== undefined && (typeof step.selectedDate !== "string" || !isValidLocalDate(step.selectedDate))
       || step.completedDate !== undefined && (!step.done || typeof step.completedDate !== "string" || !isValidLocalDate(step.completedDate))) return false;
     ids.add(step.id);
@@ -95,13 +96,13 @@ type PoolState = {
   reviewPool?: CourseReviewPool;
 };
 
-const courses = [
-  { key: "big-data", title: "大数据分析", aliases: ["大数据分析", "大数据"], chapters: ["L2", "L3", "L4"] },
-  { key: "probability", title: "概率论", aliases: ["概率论与数理统计", "概率论", "概率"], chapters: ["第1章", "第2章"] },
-  { key: "accounting", title: "会计学基础", aliases: ["会计学基础", "会计基础"], chapters: ["L1", "L2", "L3"] },
-  { key: "economics", title: "经济学基础", aliases: ["经济学基础", "经济学"], chapters: ["L1", "L2", "L3", "L4"] },
-  { key: "tax", title: "税收理论与实务", aliases: ["税收理论与实务", "税收理论", "税务", "税法"], chapters: ["第1章", "第2章", "第3章"] },
-  { key: "linear-algebra", title: "线性代数", aliases: ["线性代数b", "线性代数", "线代"], chapters: ["第1章", "第2章"] },
+const historicalCourseAliases = [
+  ["大数据分析", "大数据"],
+  ["概率论与数理统计", "概率论", "概率"],
+  ["会计学基础", "会计基础"],
+  ["经济学基础", "经济学"],
+  ["税收理论与实务", "税收理论", "税务", "税法"],
+  ["线性代数b", "线性代数", "线代"],
 ] as const;
 const formalWork = /作业|提交|考试|测验|测试|论文|报告|交付|答辩|quiz|homework|assignment|exam|deadline|\bddl\b/i;
 const compact = (value: string) => value.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
@@ -109,11 +110,42 @@ const sourceKey = (source: ReviewPoolSource) => `${source.kind}:${source.id}`;
 
 function reviewCourseKey(title: string) {
   const name = compact(title);
-  return courses.find((course) => course.aliases.some((alias) => name.includes(alias)))?.key ?? name;
+  return historicalCourseAliases.find((aliases) => aliases.some((alias) => name.includes(alias)))?.[0] ?? name;
 }
 
 export function sameReviewCourse(left: string, right: string) {
   return reviewCourseKey(left) === reviewCourseKey(right);
+}
+
+export function groupReviewPoolItems(items: ReviewPoolItem[]) {
+  const groups = new Map<string, { key: string; course: string; items: ReviewPoolItem[] }>();
+  for (const item of items) {
+    if (item.archived) continue;
+    const key = reviewCourseKey(item.course);
+    const group = groups.get(key) ?? { key, course: item.course, items: [] };
+    group.items.push(item);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+export function movePoolEntry<T extends { id: string; archived?: true }>(entries: T[], id: string, direction: -1 | 1, sameGroup: (left: T, right: T) => boolean = () => true) {
+  const item = entries.find((entry) => entry.id === id && !entry.archived);
+  if (!item) return entries;
+  const siblings = entries.filter((entry) => !entry.archived && sameGroup(item, entry));
+  const neighbour = siblings[siblings.indexOf(item) + direction];
+  if (!neighbour) return entries;
+  return entries.map((entry) => entry === item ? neighbour : entry === neighbour ? item : entry);
+}
+
+export function setPoolEntryArchived<T extends { id: string; archived?: true }>(entries: T[], id: string, archived: boolean): T[] {
+  return entries.map((entry) => {
+    if (entry.id !== id || Boolean(entry.archived) === archived) return entry;
+    if (archived) return { ...entry, archived: true };
+    const restored = { ...entry };
+    delete restored.archived;
+    return restored;
+  });
 }
 
 export function reviewPoolCourseVisibility(courseList: readonly { title: string; ended?: boolean }[]) {
@@ -132,7 +164,8 @@ export function deferStudyToReviewPool<T extends PoolState>(state: T, sourceId: 
   if (draft.completedToday && (!currentDate || !isValidLocalDate(currentDate))) throw new Error("请选择有效的完成日期");
   const chapter = normalizeReviewChapter(draft.chapter);
   const existing = pool.items.find((item) => sameReviewCourse(item.course, course.title) && reviewChapterKey(item.chapter) === reviewChapterKey(chapter));
-  if (existing?.done) throw new Error("这个项目已完成，请先在复习池中标记未完成");
+  if (existing?.archived) throw new Error("该学习阶段已归档，请先恢复");
+  if (existing?.done) throw new Error("这个项目已完成，请先标记未完成");
   if (existing && existing.sources.length >= 2_000) throw new Error("此项目的关联记录已达上限");
   const note = draft.note.trim();
   const combinedNote = existing && note && !existing.note.split("\n\n").includes(note) ? [existing.note, note].filter(Boolean).join("\n\n") : existing?.note ?? note;
@@ -163,33 +196,6 @@ function isFormalWork(record: SourceRecord) {
   return formalWork.test(record.title) || formalWork.test(record.requirements ?? "");
 }
 
-function matchReview(record: SourceRecord, state: PoolState): string | undefined {
-  if (record.automationKey || record.id.startsWith("stage:") || isFormalWork(record)) return;
-  const title = compact(record.title);
-  const context = [title, compact(record.source ?? ""), compact(state.courses?.find((course) => course.id === record.courseId)?.title ?? "")];
-  const candidates = courses.filter((course) => course.aliases.some((alias) => context.some((value) => value.includes(alias))));
-  if (candidates.length !== 1) return;
-  const course = candidates[0];
-  const chapterMatches = [...title.matchAll(/(?:lecture|lec|l)([1-9]\d*)|第([一二三四五六七八九十\d]+)章|(?:chapter|ch)([1-9]\d*)/g)];
-  if (chapterMatches.length !== 1) return;
-  const match = chapterMatches[0];
-  const numeral = match[1] ?? match[2] ?? match[3];
-  const number = /^\d+$/.test(numeral) ? Number(numeral) : "一二三四五六七八九十".indexOf(numeral) + 1;
-  if (!number) return;
-  const chapter = course.chapters.find((value) => Number(value.match(/\d+/)?.[0]) === number);
-  if (!chapter) return;
-  let remainder = title.replace(match[0], "");
-  for (const alias of course.aliases) remainder = remainder.replace(alias, "");
-  remainder = remainder.replace(/\((?:全英文|英文|中文)\)/g, "");
-  const explicitReview = /rev(?:iew)?|复习|自学|学习/.test(remainder);
-  const onlyCourseAndChapter = remainder.replace(/[·:：/\\_\-—()（）]/g, "") === "";
-  if (!explicitReview && !onlyCourseAndChapter) return;
-  // Keep mixed or ambiguous work outside the pool rather than absorbing it by a keyword alone.
-  remainder = remainder.replace(/review|rev|复习|自学|学习/g, "").replace(/[·:：/\\_\-—()（）]/g, "");
-  if (remainder) return;
-  return `review:${course.key}:${chapter.startsWith("L") ? chapter : number}`;
-}
-
 export function reviewPoolSourceKeys(state: Pick<PoolState, "tasks" | "reviewPool">): Set<string> {
   const keys = new Set([
     ...(state.reviewPool?.items.flatMap((item) => item.sources.map(sourceKey)) ?? []),
@@ -216,58 +222,26 @@ export function withoutReviewPoolSources<T extends Pick<PoolState, "tasks" | "mi
   return { ...state, tasks: state.tasks.filter((item) => !keys.has(`task:${item.id}`)), milestones: state.milestones.filter((item) => !keys.has(`milestone:${item.id}`)) };
 }
 
-export function initializeCourseReviewPool<T extends PoolState>(state: T, selectedDate = "2026-10-23"): T & { reviewPool: CourseReviewPool } {
+export function initializeCourseReviewPool<T extends PoolState>(state: T): T & { reviewPool: CourseReviewPool } {
   if (state.reviewPool) return state as T & { reviewPool: CourseReviewPool };
-  if (!isValidLocalDate(selectedDate)) throw new Error("请选择有效日期");
-  const originals = [
-    ...state.tasks.map((record) => ({ kind: "task" as const, record })),
-    ...state.milestones.map((record) => ({ kind: "milestone" as const, record })),
-  ];
-  const matches = originals.map((source) => ({ ...source, itemId: matchReview(source.record, state) }));
-  const items: ReviewPoolItem[] = courses.flatMap((course) => course.chapters.map((chapter): ReviewPoolItem => {
-    const id = `review:${course.key}:${chapter.startsWith("L") ? chapter : Number(chapter.match(/\d+/)?.[0])}`;
-    const matching = matches.filter((source) => source.itemId === id);
-    const done = matching.some(({ record }) => taskStatusOf(record) === "已完成" || record.progress === 100);
-    const progress = done ? 100 : Math.max(0, ...matching.map(({ record }) => taskProgressOf(record)));
-    const completedDate = matching.filter(({ record }) => taskStatusOf(record) === "已完成" || record.progress === 100)
-      .map(({ record }) => taskCompletionDate(record)).filter((date): date is string => Boolean(date)).sort().at(-1);
-    const sources: ReviewPoolSource[] = matching.map(({ kind, record }) => ({ kind, id: record.id }));
-    const keys = new Set(sources.map(sourceKey));
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const task of state.tasks) {
-        if (!task.id.startsWith("stage:") || isFormalWork(task) || keys.has(`task:${task.id}`)) continue;
-        if (task.parentId && keys.has(`task:${task.parentId}`) || task.parentMilestoneId && keys.has(`milestone:${task.parentMilestoneId}`)) {
-          sources.push({ kind: "task", id: task.id });
-          keys.add(`task:${task.id}`);
-          changed = true;
-        }
-      }
-    }
-    return { id, course: course.title, chapter, progress, note: "", done, sources,
-      ...(!done && id === "review:economics:L1" ? { selectedDate } : {}),
-      ...(done && completedDate ? { completedDate } : {}),
-    };
-  }));
-  return { ...state, reviewPool: { version: 1, items } };
+  return { ...state, reviewPool: { version: 1, items: [] } };
 }
 
 export function reviewPoolItemVisibleOnDate(item: ReviewPoolItem, date: string) {
-  return item.selectedDate === date && (!item.done || item.completedDate === date);
+  return !item.archived && item.selectedDate === date && (!item.done || item.completedDate === date);
 }
 
 export function reviewPoolStepVisibleOnDate(step: ReviewPoolStep, date: string) {
-  return step.selectedDate === date && (!step.done || step.completedDate === date);
+  return !step.archived && step.selectedDate === date && (!step.done || step.completedDate === date);
 }
 
 export function reviewPoolStepTodayCounts(item: Pick<ReviewPoolItem, "steps">, date: string) {
-  const steps = item.steps?.filter((step) => reviewPoolStepVisibleOnDate(step, date) || step.done && step.completedDate === date) ?? [];
+  const steps = item.steps?.filter((step) => !step.archived && (reviewPoolStepVisibleOnDate(step, date) || step.done && step.completedDate === date)) ?? [];
   return { total: steps.length, completed: steps.filter((step) => step.done && step.completedDate === date).length };
 }
 
 export function reviewPoolTodayCounts(items: ReviewPoolItem[], date: string) {
-  const selected = items.flatMap((item) => [
+  const selected = items.filter((item) => !item.archived).flatMap((item) => [
     ...(reviewPoolItemVisibleOnDate(item, date) ? [item] : []),
     ...(item.steps?.filter((step) => reviewPoolStepVisibleOnDate(step, date)) ?? []),
   ]);
@@ -322,7 +296,8 @@ export function updateReviewPoolItem<T extends { reviewPool?: CourseReviewPool }
 }
 
 export function chooseReviewPoolItem<T extends { reviewPool?: CourseReviewPool }>(state: T, id: string, date: string): T {
-  if (state.reviewPool?.items.find((item) => item.id === id)?.done) return state;
+  const item = state.reviewPool?.items.find((item) => item.id === id);
+  if (!item || item.done || item.archived) return state;
   return updateReviewPoolItem(state, id, { selectedDate: date }, date);
 }
 
@@ -342,7 +317,7 @@ function readablePool(value: unknown): value is CourseReviewPool {
       || typeof item.chapter !== "string" || !item.chapter || item.chapter.length > 500 || typeof item.note !== "string" || item.note.length > 4000
       || typeof item.done !== "boolean" || typeof item.progress !== "number" || !Number.isInteger(item.progress)
       || item.progress < 0 || item.progress > 100 || item.done !== (item.progress === 100)
-      || !Array.isArray(item.sources) || item.sources.length > 2000
+      || !Array.isArray(item.sources) || item.sources.length > 2000 || item.archived !== undefined && item.archived !== true
       || item.steps !== undefined && !validReviewPoolSteps(item.steps)
       || item.selectedDate !== undefined && (typeof item.selectedDate !== "string" || !isValidLocalDate(item.selectedDate))
       || item.completedDate !== undefined && (!item.done || typeof item.completedDate !== "string" || !isValidLocalDate(item.completedDate))

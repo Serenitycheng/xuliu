@@ -1,8 +1,9 @@
+import { initializeCourseReviewPool } from "./fixtures/legacy-course-review.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { rescheduleDailyStudy } from "../lib/study-plan-reset.ts";
 import { createDailyStudyTaskPlan, migrateDailyStudyTasks, STUDY_AUTOMATION_RULE_VERSION, studyTaskVisibleOnDate } from "../lib/study-task-automation.ts";
-import { chooseReviewPoolItem, deferStudyToReviewPool, deleteReviewPoolItem, initializeCourseReviewPool, withoutReviewPoolSources } from "../lib/course-review-pool.ts";
+import { chooseReviewPoolItem, deferStudyToReviewPool, deleteReviewPoolItem, withoutReviewPoolSources } from "../lib/course-review-pool.ts";
 import { createEmptyWorkspaceState, workspaceStateSchema } from "../lib/workspace-state-schema.ts";
 
 const today = "2026-10-14";

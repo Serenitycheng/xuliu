@@ -6,7 +6,7 @@ import { defaultTaskPlannedDate, taskCompletionDate, taskDeadlineLabel, taskMode
 import "./course-review-pool.css";
 import "./exam-review-pool.css";
 
-export type ExamReviewTask = TaskScheduleLike & { id: string; title: string; done: boolean; examEventId?: string; examSelectedDate?: string };
+export type ExamReviewTask = TaskScheduleLike & { id: string; title: string; done: boolean; examEventId?: string; examSelectedDate?: string; examArchived?: true };
 
 type ExamReviewTaskActions = {
   onCreateTask: (eventId: string) => void;
@@ -14,7 +14,7 @@ type ExamReviewTaskActions = {
   onToggleTask: (taskId: string) => void;
   onPlanToday: (taskId: string) => void;
   onCancelToday: (taskId: string) => void;
-  onDeleteTask: (taskId: string) => void;
+  onArchiveTask: (taskId: string, archived: boolean) => void;
 };
 
 type ExamReviewProps = ExamReviewTaskActions & {
@@ -31,6 +31,7 @@ const courseOf = (event: ExamReviewEvent, courses: ExamReviewProps["courses"]) =
 const dateOf = (event: ExamReviewEvent) => event.date ? `${event.date}${event.time ? ` ${event.time}` : ""}` : "日期待定";
 
 function poolSummary(event: ExamReviewEvent, tasks: ExamReviewTask[], today: string) {
+  tasks = tasks.filter((task) => !task.examArchived);
   const legacy = examReviewSummary(event, today);
   const completedToday = (task: ExamReviewTask) => taskStatusOf(task) === "已完成" && taskCompletionDate(task) === today;
   const todayTasks = tasks.filter((task) => completedToday(task) || examReviewTaskSelectedOnDate(task, today) && taskStatusOf(task) !== "已完成");
@@ -47,13 +48,15 @@ function ExamTodaySummary({ summary: { todayTotal, todayCompleted } }: { summary
   return <span className="reviewPoolStepSummary">{todayCompleted ? todayCompleted === todayTotal ? `今日完成 ${todayCompleted} 项` : `今日完成 ${todayCompleted}/${todayTotal} 项` : `今日复习 ${todayTotal} 项`}</span>;
 }
 
-function ExamReviewTasks({ event, tasks, today, readOnly, onCreateTask, onEditTask, onToggleTask, onPlanToday, onCancelToday, onDeleteTask }: Pick<ExamReviewProps, "tasks" | "today" | "readOnly"> & ExamReviewTaskActions & { event: ExamReviewEvent }) {
+function ExamReviewTasks({ event, tasks, today, readOnly, onCreateTask, onEditTask, onToggleTask, onPlanToday, onCancelToday, onArchiveTask }: Pick<ExamReviewProps, "tasks" | "today" | "readOnly"> & ExamReviewTaskActions & { event: ExamReviewEvent }) {
   const legacySteps = event.examReview?.steps ?? [];
   const summary = poolSummary(event, tasks, today);
-  return <section className="reviewPoolSteps examReviewSteps" aria-label={`${event.title} 复习任务`}>
-    <div className="reviewPoolStepsHead"><span>复习任务 · {summary.completed}/{summary.total}</span>
-      <button type="button" className="textButton" disabled={readOnly} onClick={() => onCreateTask(event.id)}>＋ 复习任务</button></div>
-    {tasks.length > 0 && <ul>{tasks.map((task) => {
+  const activeTasks = tasks.filter((task) => !task.examArchived);
+  const archivedTasks = tasks.filter((task) => task.examArchived);
+  return <section className="reviewPoolSteps examReviewSteps" aria-label={`${event.title} 训练任务`}>
+    <div className="reviewPoolStepsHead"><span>训练任务 · {summary.completed}/{summary.total}</span>
+      <button type="button" className="textButton" disabled={readOnly} onClick={() => onCreateTask(event.id)}>＋ 训练任务</button></div>
+    {activeTasks.length > 0 && <ul>{activeTasks.map((task) => {
       const done = taskStatusOf(task) === "已完成";
       const selectedToday = examReviewTaskSelectedOnDate(task, today);
       const plannedDate = defaultTaskPlannedDate(task);
@@ -61,28 +64,31 @@ function ExamReviewTasks({ event, tasks, today, readOnly, onCreateTask, onEditTa
       const schedule = [multi ? "长期任务" : "短期任务", multi && !done ? `${taskStatusOf(task)} · ${taskProgressOf(task)}%` : "", plannedDate ? `${plannedDate} 推进` : "", task.due ? `截止 ${taskDeadlineLabel(task)}` : "未设截止"].filter(Boolean).join(" · ");
       return <li key={task.id}>
         <button type="button" role="checkbox" className="checkButton reviewPoolCheck" aria-checked={done}
-          aria-label={`${done ? "重新打开复习任务" : "完成复习任务"}：${event.title} · ${task.title}`} disabled={readOnly}
+          aria-label={`${done ? "重新打开训练任务" : "完成训练任务"}：${event.title} · ${task.title}`} disabled={readOnly}
           onClick={() => onToggleTask(task.id)}>{done ? "✓" : ""}</button>
         <div className="reviewPoolStepTitle examReviewTaskText"><button type="button" className={`taskTitleButton${done ? " reviewPoolStepDone" : ""}`} onClick={() => onEditTask(task.id)}>{task.title}</button><span className="examReviewTaskMeta">{schedule}</span></div>
         {(selectedToday || !done) && <button type="button" className="textButton reviewPoolStepChoose" disabled={readOnly}
           aria-label={`${selectedToday ? "取消今天复习" : "今天复习"}：${event.title} · ${task.title}`}
           onClick={() => selectedToday ? onCancelToday(task.id) : onPlanToday(task.id)}>{selectedToday ? "取消今天" : "今天做"}</button>}
-        <button type="button" className="reviewPoolStepEdit" disabled={readOnly} aria-label={`修改复习任务：${task.title}`} onClick={() => onEditTask(task.id)}>修改</button>
-        <button type="button" className="reviewPoolStepRemove" disabled={readOnly} aria-label={`删除复习任务：${task.title}`} onClick={() => onDeleteTask(task.id)}>删除</button>
+        <button type="button" className="reviewPoolStepEdit" disabled={readOnly} aria-label={`修改训练任务：${task.title}`} onClick={() => onEditTask(task.id)}>修改</button>
+        <button type="button" className="reviewPoolStepRemove" disabled={readOnly} aria-label={`归档训练任务：${task.title}`} onClick={() => onArchiveTask(task.id, true)}>归档</button>
       </li>;
     })}</ul>}
-    {legacySteps.length > 0 && <div className="examReviewLegacyTasks"><p>以下旧复习任务已保留。任务数量达到上限时，腾出空间后刷新即可转换。</p><ul>{legacySteps.map((step) => <li key={step.id}><span aria-label={step.done ? "已完成" : "未完成"}>{step.done ? "✓" : "○"}</span><span className={`reviewPoolStepTitle${step.done ? " reviewPoolStepDone" : ""}`}>{step.title}</span></li>)}</ul></div>}
+    {archivedTasks.length > 0 && <details className="reviewPoolArchive"><summary>已归档训练（{archivedTasks.length}）</summary><ul>
+      {archivedTasks.map((task) => <li key={task.id}><span className="reviewPoolStepTitle">{task.done ? "✓ " : ""}{task.title}</span>{!readOnly && <button type="button" className="textButton" onClick={() => onArchiveTask(task.id, false)}>恢复</button>}</li>)}
+    </ul></details>}
+    {legacySteps.length > 0 && <div className="examReviewLegacyTasks"><p>以下旧训练任务已保留。任务数量达到上限时，腾出空间后刷新即可转换。</p><ul>{legacySteps.map((step) => <li key={step.id}><span aria-label={step.done ? "已完成" : "未完成"}>{step.done ? "✓" : "○"}</span><span className={`reviewPoolStepTitle${step.done ? " reviewPoolStepDone" : ""}`}>{step.title}</span></li>)}</ul></div>}
   </section>;
 }
 
 export function ExamReviewPoolEntry({ onOpen }: { onOpen: () => void }) {
   return <button type="button" className="panel reviewPoolEntry examReviewPoolEntry" aria-haspopup="dialog" onClick={onOpen}>
     <svg width="25" height="25" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 4H5v17h14V4h-3M8 3h8v4H8V3Zm0 9h8m-8 4h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-    <span>考试复习池</span><span className="reviewPoolEntryArrow" aria-hidden="true">↗</span>
+    <span>考试池</span><span className="reviewPoolEntryArrow" aria-hidden="true">↗</span>
   </button>;
 }
 
-export function ExamReviewPoolDialog({ events, tasks, courses, today, readOnly, initialEventId, onClose, onChange, onCreateExam, onEditExam, onToggleExam, onExcludeExam, onCreateTask, onEditTask, onToggleTask, onPlanToday, onCancelToday, onDeleteTask }: ExamReviewProps & {
+export function ExamReviewPoolDialog({ events, tasks, courses, today, readOnly, initialEventId, onClose, onChange, onCreateExam, onEditExam, onToggleExam, onExcludeExam, onCreateTask, onEditTask, onToggleTask, onPlanToday, onCancelToday, onArchiveTask }: ExamReviewProps & {
   initialEventId?: string;
   onClose: () => void;
   onCreateExam: () => void;
@@ -116,6 +122,12 @@ export function ExamReviewPoolDialog({ events, tasks, courses, today, readOnly, 
   const visible = (scope === "excluded" ? excluded : exams.filter((event) => event.done === (scope === "finished")))
     .filter((event) => !search || `${event.title} ${courseOf(event, courses)}`.normalize("NFKC").toLocaleLowerCase().includes(search))
     .sort((left, right) => (left.date || "9999").localeCompare(right.date || "9999") || left.time.localeCompare(right.time));
+  const courseGroups = new Map<string | undefined, ExamReviewEvent[]>();
+  for (const event of visible) {
+    const group = courseGroups.get(event.linkedCourseId) ?? [];
+    group.push(event);
+    courseGroups.set(event.linkedCourseId, group);
+  }
   const restoreExam = (event: ExamReviewEvent) => {
     if (readOnly) return;
     onExcludeExam(event.id, false);
@@ -136,9 +148,9 @@ export function ExamReviewPoolDialog({ events, tasks, courses, today, readOnly, 
     return () => { dialog?.close(); if (previousFocus?.isConnected) previousFocus.focus(); };
   }, []);
   return <dialog ref={dialogRef} className="reviewPoolDialog examReviewPoolDialog" aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); onClose(); }}>
-    <header className="reviewPoolHead"><h2 id={titleId}>考试复习池</h2><div className="reviewPoolHeadActions">
+    <header className="reviewPoolHead"><h2 id={titleId}>考试池</h2><div className="reviewPoolHeadActions">
       <button type="button" className="softButton reviewPoolAddButton" disabled={readOnly} onClick={onCreateExam}>＋ 新增考试</button>
-      <button type="button" ref={closeRef} className="reviewPoolClose" aria-label="关闭考试复习池" onClick={onClose}>×</button>
+      <button type="button" ref={closeRef} className="reviewPoolClose" aria-label="关闭考试池" onClick={onClose}>×</button>
     </div></header>
     <div className="reviewPoolContents">
       <div className="examReviewFilters"><div className="examReviewScope" aria-label="考试状态"><button type="button" aria-pressed={scope === "active"} onClick={() => setScope("active")}>未结束 <span>{exams.filter((event) => !event.done).length}</span></button><button type="button" aria-pressed={scope === "finished"} onClick={() => setScope("finished")}>已结束 <span>{exams.filter((event) => event.done).length}</span></button>{(excluded.length > 0 || scope === "excluded") && <button type="button" aria-pressed={scope === "excluded"} onClick={() => setScope("excluded")}>已移出 <span>{excluded.length}</span></button>}</div>
@@ -147,7 +159,13 @@ export function ExamReviewPoolDialog({ events, tasks, courses, today, readOnly, 
       {removed && !readOnly && <div className="reviewPoolStepUndo"><span role="status">已移出 {removed.title}，原事项保留</span><button type="button" ref={undoRef} className="textButton" onClick={() => { const event = events.find((item) => item.id === removed.id); if (event && isExamReviewCandidate(event)) restoreExam(event); else setRemoved(null); }}>撤销</button></div>}
       {scope === "excluded" && <p className="examReviewExcludedHint">原事项和复习内容均保留，可随时恢复。</p>}
       {!visible.length && <p className="examReviewEmpty">{search ? "没有匹配的考试" : scope === "excluded" ? "暂无移出的考试" : scope === "finished" ? "暂无已结束考试" : "暂无考试"}</p>}
-      <ul className="reviewPoolList examReviewExamList">{visible.map((event) => {
+      {[...courseGroups].map(([courseId, events]) => {
+        const summaries = events.map((event) => poolSummary(event, tasksByExam.get(event.id) ?? [], today));
+        const complete = summaries.reduce((sum, item) => sum + item.completed, 0);
+        const total = summaries.reduce((sum, item) => sum + item.total, 0);
+        return <details open key={courseId ?? "unlinked"} className="reviewPoolCourse">
+          <summary className="poolCourseHeader"><strong>{courseOf(events[0], courses) || "未关联课程"}</strong><span>{complete}/{total} 训练完成</span></summary>
+          <ul className="reviewPoolList examReviewExamList">{events.map((event) => {
         const open = expanded.has(event.id);
         const review = reviewOf(event);
         const relatedTasks = tasksByExam.get(event.id) ?? [];
@@ -155,7 +173,7 @@ export function ExamReviewPoolDialog({ events, tasks, courses, today, readOnly, 
         const course = courseOf(event, courses);
         if (scope === "excluded") return <li key={event.id} className="examReviewExam examReviewExcludedRow">
           <div className="examReviewExamTitle"><strong>{event.title}</strong><span className="examReviewExamMeta">{course ? `${course} · ` : ""}{dateOf(event)}</span></div>
-          <button type="button" className="textButton" disabled={readOnly} aria-label={`恢复到考试复习池：${event.title}`} onClick={() => restoreExam(event)}>恢复到复习池</button>
+          <button type="button" className="textButton" disabled={readOnly} aria-label={`恢复到考试池：${event.title}`} onClick={() => restoreExam(event)}>恢复到考试池</button>
         </li>;
         return <li key={event.id} className="examReviewExam">
           <button type="button" ref={(focusEvent ?? initialEventId) === event.id ? initialRef : undefined} className="examReviewExamToggle" aria-expanded={open} aria-label={`${open ? "收起" : "展开"}考试复习：${event.title}`} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(event.id)) next.delete(event.id); else next.add(event.id); return next; })}>
@@ -163,12 +181,14 @@ export function ExamReviewPoolDialog({ events, tasks, courses, today, readOnly, 
             <span className="examReviewExamCount">{summary.completed}/{summary.total}</span><span className={`reviewPoolDisclosure${open ? " reviewPoolDisclosureOpen" : ""}`} aria-hidden="true">›</span>
           </button>
           {open && <div className="reviewPoolDetails examReviewExamDetails">
-            <div className="reviewPoolItemActions"><button type="button" className="textButton" disabled={readOnly} onClick={() => onEditExam(event.id)}>修改考试</button><button type="button" className="textButton" disabled={readOnly} onClick={() => onToggleExam(event.id)}>{event.done ? "重新打开考试" : "标记考试结束"}</button><button type="button" className="textButton" disabled={readOnly} aria-label={`移出考试复习池：${event.title}`} title="仅移出复习池，保留原事项和复习内容" onClick={() => { onExcludeExam(event.id, true); setRemoved({ id: event.id, title: event.title }); }}>移出复习池</button></div>
-            <ExamReviewTasks event={event} tasks={relatedTasks} today={today} readOnly={readOnly} onCreateTask={onCreateTask} onEditTask={onEditTask} onToggleTask={onToggleTask} onPlanToday={onPlanToday} onCancelToday={onCancelToday} onDeleteTask={onDeleteTask} />
+            <div className="reviewPoolItemActions"><button type="button" className="textButton" disabled={readOnly} onClick={() => onEditExam(event.id)}>修改考试</button><button type="button" className="textButton" disabled={readOnly} onClick={() => onToggleExam(event.id)}>{event.done ? "重新打开考试" : "标记考试结束"}</button><button type="button" className="textButton" disabled={readOnly} aria-label={`移出考试池：${event.title}`} title="仅移出考试池，保留原事项和复习内容" onClick={() => { onExcludeExam(event.id, true); setRemoved({ id: event.id, title: event.title }); }}>移出考试池</button></div>
+            <ExamReviewTasks event={event} tasks={relatedTasks} today={today} readOnly={readOnly} onCreateTask={onCreateTask} onEditTask={onEditTask} onToggleTask={onToggleTask} onPlanToday={onPlanToday} onCancelToday={onCancelToday} onArchiveTask={onArchiveTask} />
             <label className="reviewPoolNote"><span>进度与备注</span><textarea aria-label={`${event.title} 复习进度与备注`} rows={3} maxLength={4000} value={review.note} disabled={readOnly} onChange={(change) => onChange(event.id, { note: change.target.value })} /></label>
           </div>}
         </li>;
-      })}</ul>
+          })}</ul>
+        </details>;
+      })}
     </div>
   </dialog>;
 }

@@ -44,7 +44,7 @@ function taskRows(data: Workspace, date: string) {
         target: { kind: "milestone", id: node.id }, title: node.title, done: node.done, due: node.date || undefined,
         detail: !node.done && node.progressedDates?.includes(date) ? "今日已推进" : node.automationKey ? "自动学习" : node.courseId ? "课程" : "事项",
       })),
-    ...(data.reviewPool?.items ?? []).filter((item) => courseVisible(item.course)).flatMap((item): WidgetTask[] => [
+    ...(data.reviewPool?.items ?? []).filter((item) => !item.archived && courseVisible(item.course)).flatMap((item): WidgetTask[] => [
       ...(reviewPoolItemVisibleOnDate(item, date) ? [{
         target: { kind: "review" as const, id: item.id }, title: item.chapter, detail: item.course, done: item.done,
       }] : []),

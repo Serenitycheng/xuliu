@@ -12,7 +12,7 @@ import { CourseEventDialog } from "./CourseEventDialog";
 import { assessmentTypeLabel, assessmentTypeOptions, eventCourseChoices, eventCourseLabel, eventDateLabel, eventRequiresCompletion, migrateCourseEvents, scheduleHasElapsed } from "@/lib/course-events";
 import { isFormSaveEnter as isDialogSaveEnter, submitFormOnEnter } from "./form-keyboard";
 import { CourseReviewPoolDialog, DeferStudyDialog, ReviewPoolEntry, ReviewPoolToday } from "./CourseReviewPool";
-import { editedStudyToReviewPool, deleteReviewPoolItem, initializeCourseReviewPool, restoreReviewPoolItem, reviewPoolCourseVisibility, reviewPoolTodayCounts, updateReviewPoolItem, withoutReviewPoolSources, type CourseReviewPool, type ReviewPoolItem } from "@/lib/course-review-pool";
+import { editedStudyToReviewPool, initializeCourseReviewPool, movePoolEntry, setPoolEntryArchived, sameReviewCourse, reviewPoolCourseVisibility, reviewPoolTodayCounts, updateReviewPoolItem, withoutReviewPoolSources, type CourseReviewPool, type ReviewPoolItem } from "@/lib/course-review-pool";
 import FocusTimer, { usePomodoroTimer } from "./FocusTimer";
 import { defaultFocusSettings, descendantTasks, detachRemovedParents, entryMatches, parentError, type FocusSettings, type TimeEntry, type WorkTarget } from "@/lib/task-time";
 import { upload as uploadBlob } from "@vercel/blob/client";
@@ -93,7 +93,7 @@ export type Block = {
 };
 type Milestone = CourseNode;
 type ReviewStudyDraft = { node: Milestone; edited?: boolean };
-type TaskItem = { parentId?: string; parentMilestoneId?: string; examEventId?: string; examSelectedDate?: string; courseId?: string; requirements?: string; attachments?: NodeAttachment[]; parentCandidate?: boolean; blocks?: Block[]; id: string; title: string; area: Area; source: string; due?: string; dueTime?: string; plannedDate?: string; progressedDates?: string[]; showOnCalendar?: boolean; dismissedTodayDate?: string; completedDate?: string; done: boolean; today: boolean; elapsed: number; mode?: TaskMode; startDate?: string; status?: TaskProgressStatus; progress?: number; progressLogs?: TaskProgressLog[] };
+type TaskItem = { parentId?: string; parentMilestoneId?: string; examEventId?: string; examSelectedDate?: string; examArchived?: true; courseId?: string; requirements?: string; attachments?: NodeAttachment[]; parentCandidate?: boolean; blocks?: Block[]; id: string; title: string; area: Area; source: string; due?: string; dueTime?: string; plannedDate?: string; progressedDates?: string[]; showOnCalendar?: boolean; dismissedTodayDate?: string; completedDate?: string; done: boolean; today: boolean; elapsed: number; mode?: TaskMode; startDate?: string; status?: TaskProgressStatus; progress?: number; progressLogs?: TaskProgressLog[] };
 type PageNode = { id: string; space: "thoughts" | "free"; parentId: string | null; title: string; kind: "folder" | "page"; blocks: Block[] };
 type CourseSlot = { id: string; weekday: number; start: string; end: string; location: string; weeks?: string; source?: "manual" | "pku" | "bit" | "ics" };
 type AcademicImportPreset = "pku" | "bit";
@@ -334,7 +334,7 @@ function postponeTask(task: TaskItem, days = 1): TaskItem {
   return { ...task, due, plannedDate, today: taskModeOf(task) === "single" && (due === today || plannedDate === today) };
 }
 
-function hydrateState(raw: unknown, initializeReviewPool = false): AppState {
+function hydrateState(raw: unknown): AppState {
   if (!raw || typeof raw !== "object") return initialState;
   const saved = raw as Partial<AppState> & { resources?: { id: string; title: string; type: string; progress: number; url?: string; note?: string }[] };
   const savedVersion = Number((raw as { version?: unknown }).version ?? 0);
@@ -401,7 +401,7 @@ function hydrateState(raw: unknown, initializeReviewPool = false): AppState {
     themes: { ...initialState.themes, ...(saved.themes ?? {}) },
   }, dateKey());
   const courseEvents = migrateCourseEvents(normalized);
-  const withCourseReview = initializeReviewPool ? initializeCourseReviewPool(courseEvents) : courseEvents;
+  const withCourseReview = initializeCourseReviewPool(courseEvents);
   return withPlannedTaskStages<AppState>(migrateExamReviewTasks(withCourseReview), dateKey(), uid);
 }
 
@@ -577,7 +577,7 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
     }).then((result) => {
       if (!result || cancelled || saveEpochRef.current !== loadEpoch) return;
       cloudRevisionRef.current = Number(result.revision ?? 0);
-      const hydrated = hydrateState(result.data ?? initialState, workspaceOwner === "owner");
+      const hydrated = hydrateState(result.data ?? initialState);
       const needsNormalizationSave = !result.readOnly && clientNormalizationChanged(result.data, hydrated);
       setStoredData(hydrated);
       loadedWorkspaceRef.current = workspaceOwner;
@@ -603,7 +603,7 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
         const result = await response.json();
         if (controller.signal.aborted || dirtyRef.current || saveEpochRef.current !== epoch || editVersionRef.current !== edit
           || !Number.isSafeInteger(result.revision) || result.revision <= cloudRevisionRef.current) return;
-        const hydrated = hydrateState(result.data ?? initialState, workspaceOwner === "owner");
+        const hydrated = hydrateState(result.data ?? initialState);
         cloudRevisionRef.current = result.revision;
         if (!result.readOnly && clientNormalizationChanged(result.data, hydrated)) {
           dirtyRef.current = true;
@@ -767,7 +767,7 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
     const result = await response.json();
     if (saveEpochRef.current !== refreshEpoch) return;
     cloudRevisionRef.current = Number(result.revision ?? 0);
-    const hydrated = hydrateState(result.data ?? initialState, account.id === "owner");
+    const hydrated = hydrateState(result.data ?? initialState);
     const needsNormalizationSave = clientNormalizationChanged(result.data, hydrated);
     dirtyRef.current = needsNormalizationSave;
     editVersionRef.current += 1;
@@ -785,6 +785,12 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
   const taskListData = withoutUnselectedExamReviewTasks(displayedData, reviewDate);
   const changeReviewItem = (id: string, patch: Partial<Pick<ReviewPoolItem, "course" | "chapter" | "progress" | "note" | "done" | "selectedDate" | "steps">>) => {
     setData((current) => updateReviewPoolItem(current, id, patch, dateKey()));
+  };
+  const changeReviewPoolItems = (change: (items: ReviewPoolItem[]) => ReviewPoolItem[]) => {
+    if (readOnly) return;
+    setData((current) => current.reviewPool
+      ? { ...current, reviewPool: { ...current.reviewPool, items: change(current.reviewPool.items) } }
+      : current);
   };
   const changeExamReview = (id: string, review: { note: string }) => {
     if (readOnly) return;
@@ -927,7 +933,7 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
         : { ...current, milestones: current.milestones.map((entry) => entry.id === advancingWork.id && isTaskNode(entry) ? advanceWorkForDate(entry, date, nextDate) : entry) });
       setAdvancingWork(null);
     }} />}
-    {reviewPoolOpen !== null && data.reviewPool && <CourseReviewPoolDialog key={reviewPoolOpen} items={data.reviewPool.items} isCourseVisible={reviewCourseVisible} courseNames={eventCourseChoices(data.courses).map((course) => course.title)} today={reviewDate} readOnly={readOnly} initialItemId={reviewPoolOpen} onClose={() => setReviewPoolOpen(null)} onChange={changeReviewItem} onDelete={(id) => { if (!readOnly) setData((current) => deleteReviewPoolItem(current, id)); }} onRestore={(item, index) => { if (!readOnly) setData((current) => restoreReviewPoolItem(current, item, index)); }} onCreate={(item) => { if (!readOnly) setData((current) => !current.reviewPool || current.reviewPool.items.length >= 500 || current.reviewPool.items.some((existing) => existing.id === item.id) ? current : { ...current, reviewPool: { ...current.reviewPool, items: [...current.reviewPool.items, item] } }); }} renderSources={(item) => <ReviewPoolSourceDetails item={item} data={data} access={{ ownerId: workspaceOwner, readOnly, preview }} />} />}
+    {reviewPoolOpen !== null && data.reviewPool && <CourseReviewPoolDialog key={reviewPoolOpen} items={data.reviewPool.items} isCourseVisible={reviewCourseVisible} courseNames={eventCourseChoices(data.courses).map((course) => course.title)} today={reviewDate} readOnly={readOnly} initialItemId={reviewPoolOpen} onClose={() => setReviewPoolOpen(null)} onChange={changeReviewItem} onArchive={(id, archived) => changeReviewPoolItems((items) => setPoolEntryArchived(items, id, archived))} onMove={(id, direction) => changeReviewPoolItems((items) => movePoolEntry(items, id, direction, (left, right) => sameReviewCourse(left.course, right.course)))} onCreate={(item) => { if (!readOnly) setData((current) => !current.reviewPool || current.reviewPool.items.length >= 500 || current.reviewPool.items.some((existing) => existing.id === item.id) ? current : { ...current, reviewPool: { ...current.reviewPool, items: [...current.reviewPool.items, item] } }); }} renderSources={(item) => <ReviewPoolSourceDetails item={item} data={data} access={{ ownerId: workspaceOwner, readOnly, preview }} />} />}
     {examPoolOpen !== null && !showExamTaskSettings && !dialog && <ExamReviewPoolDialog
       key={workspaceOwner + examPoolOpen} events={data.milestones} tasks={data.tasks} courses={data.courses} today={reviewDate} readOnly={readOnly}
       initialEventId={examPoolOpen} onClose={() => setExamPoolOpen(null)} onChange={changeExamReview}
@@ -935,7 +941,7 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
         if (readOnly) return;
         if (data.tasks.length >= 10_000) {
           setExamPoolOpen(null);
-          setPopup({ eyebrow: "考试复习池", title: "任务已达到上限", body: "请整理现有任务后再添加。" });
+          setPopup({ eyebrow: "考试池", title: "任务已达到上限", body: "请整理现有任务后再添加。" });
           return;
         }
         setExamPoolOpen(eventId);
@@ -949,11 +955,15 @@ export default function DashboardClient({ account, visibleAccounts, onLogout, de
           : task),
       }))}
       onCancelToday={(id) => cancelToday({ kind: "task", id })}
-      onDeleteTask={(id) => {
-        const task = data.tasks.find((item) => item.id === id);
-        if (readOnly || !task?.examEventId) return;
-        setExamPoolOpen(task.examEventId);
-        requestWorkDeletion({ kind: "task", id }, task.title);
+      onArchiveTask={(id, archived) => {
+        if (readOnly) return;
+        setData((current) => ({ ...current, tasks: current.tasks.map((task) => {
+          if (task.id !== id || !task.examEventId) return task;
+          if (archived) return { ...task, examArchived: true };
+          const restored = { ...task };
+          delete restored.examArchived;
+          return restored;
+        }) }));
       }}
       onCreateExam={() => setExamEventDraft("new")} onEditExam={setExamEventDraft} onToggleExam={(id) => {
       if (!readOnly) setData((current) => ({ ...current, milestones: current.milestones.map((node) => node.id === id && isExamReviewEvent(node) ? { ...node, done: !node.done } : node) }));
@@ -1150,7 +1160,7 @@ function TodayView({ onOpenIdeas, onOpenReviewPool, onOpenExamPool, appearanceCo
     {editingNode && <MilestoneSettingsDialog courses={data.courses} node={editingNode} onClose={() => setEditingNode(null)} onSave={(node) => { setData((current) => ({ ...current, milestones: current.milestones.map((item) => item.id === node.id ? node : item) })); setEditingNode(null); }} onSaveToReviewPool={(node) => { setEditingNode(null); setDeferringNode({ node, edited: true }); }} onOpenDetail={() => { const id = editingNode.id; setEditingNode(null); openWork({ kind: "milestone", id }); }} />}
     <div className="todayGrid"><div className="stack">
       {taskGroups.map((group) => <Fragment key={group.id}><section className="panel taskPanel todayCategoryPanel">
-        <PanelTitle title={group.title} action={group.id === "single" ? <>{onOpenReviewPool && <button type="button" className="todayReviewPoolButton" disabled={readOnly} aria-haspopup="dialog" onClick={onOpenReviewPool} aria-label="＋ 从复习池添加"><span className="todayPoolFullLabel">＋ 从复习池添加</span><span className="todayPoolCompactLabel">＋ 课程池</span></button>}<button type="button" className="todayReviewPoolButton" disabled={readOnly} aria-haspopup="dialog" onClick={onOpenExamPool} aria-label="＋ 从考试池添加"><span className="todayPoolFullLabel">＋ 从考试池添加</span><span className="todayPoolCompactLabel">＋ 考试池</span></button></> : undefined} meta={(group.entries.filter((entry) => entry.item.done).length + (group.id === "single" ? completedReviews : 0)) + " / " + (group.entries.length + (group.id === "single" ? selectedReviewCount : 0))} />
+        <PanelTitle title={group.title} action={group.id === "single" ? <>{onOpenReviewPool && <button type="button" className="todayReviewPoolButton" disabled={readOnly} aria-haspopup="dialog" onClick={onOpenReviewPool} aria-label="＋ 从知识学习池添加"><span className="todayPoolFullLabel">＋ 从知识学习池添加</span><span className="todayPoolCompactLabel">＋ 学习池</span></button>}<button type="button" className="todayReviewPoolButton" disabled={readOnly} aria-haspopup="dialog" onClick={onOpenExamPool} aria-label="＋ 从考试池添加"><span className="todayPoolFullLabel">＋ 从考试池添加</span><span className="todayPoolCompactLabel">＋ 考试池</span></button></> : undefined} meta={(group.entries.filter((entry) => entry.item.done).length + (group.id === "single" ? completedReviews : 0)) + " / " + (group.entries.length + (group.id === "single" ? selectedReviewCount : 0))} />
         <div className={"taskList " + (group.id === "single" ? "groupedTaskList" : "")}>{group.id === "single" ? shortTaskSections.map((section) => <div className="todayTaskSubgroup" key={section.id}>
           <div className="todayTaskSubhead"><strong>{section.title}</strong><span>{section.entries.length} 项</span></div>
           {section.id === "automatic" ? automaticCourseGroups.map((course) => <details className="todayAutomaticCourse" key={course.courseId}>
@@ -1467,7 +1477,7 @@ function TaskDetail({ target, data, setData, access, onOpen, onClose, requestDel
       {task && <section className="panel taskWorkPanel"><SectionHead title="任务内容" action={!task.requirements && !requirementsExpanded && !access.readOnly ? <button className="softButton" onClick={() => setRequirementsExpanded(true)}>＋ 添加具体要求</button> : undefined} />{(Boolean(task.requirements) || requirementsExpanded) && <label className="editField"><span>具体要求</span><textarea readOnly={access.readOnly} maxLength={4000} value={task.requirements ?? ""}  onChange={(event) => { const requirements = event.target.value; setData((current) => ({ ...current, tasks: current.tasks.map((entry) => entry.id === task.id ? { ...entry, requirements } : entry) })); }} /></label>}<details className="taskDetailDisclosure taskAttachmentsDisclosure"><summary>要求附件 <span>{task.attachments?.length ?? 0} 个</span></summary><NodeAttachments nodeId={task.id} scope="task" label="要求" files={task.attachments ?? []} access={access} onBlockedChange={setNodePending} onChange={(update) => setData((current) => ({ ...current, tasks: current.tasks.map((entry) => entry.id === task.id ? { ...entry, attachments: update(entry.attachments ?? []) } : entry) }))} /></details></section>}
       <section className="panel taskChildrenPanel"><SectionHead title={isEvent ? "关联任务" : "子任务"} subtitle={children.length ? children.filter((entry) => entry.done).length + " / " + children.length + " 项完成" : undefined} action={<button className="softButton" disabled={access.readOnly || nodePending} onClick={() => setEditing("new")}>＋ 添加任务</button>} />{children.length > 0 && <div className="taskList">{children.map((child) => <div className={"taskRow " + (child.done ? "done" : "")} key={child.id}><button className="checkButton" disabled={access.readOnly} aria-label={"切换子任务完成：" + child.title} onClick={() => setData((current) => ({ ...current, tasks: current.tasks.map((entry) => entry.id === child.id ? withTaskCompletion(entry, !entry.done) : entry) }))}>{child.done ? "✓" : ""}</button><div className="taskBody"><button className="taskTitleButton" disabled={nodePending} onClick={() => onOpen({ kind: "task", id: child.id })}>{child.title}</button><span>{taskScheduleSummary(child, today)}</span></div></div>)}</div>}</section>
       {task?.progressLogs?.length ? <section className="panel taskChildrenPanel"><details className="taskDetailDisclosure"><summary>推进历史 <span>{task.progressLogs.length} 条</span></summary><div className="taskProgressHistory">{[...task.progressLogs].reverse().slice(0, 20).map((log) => <div key={log.id}><time>{log.date}</time><span>{taskModeOf(task) === "multi" ? log.status + " · " + log.progress + "%" : log.status}</span><p>{log.note}</p></div>)}</div></details></section> : null}
-      {node?.courseId && <section className="panel taskRequirements">{node.automationKey?.startsWith("study:") && !node.done && !access.readOnly && <div className="pageHeadActions"><button type="button" className="softButton" disabled={nodePending} onClick={() => setReviewStudy({ node, edited: true })}>保存到复习池</button></div>}<CourseNodeEditor node={node} variant={node.courseId ? "courseTask" : "event"} access={access} onPendingChange={setNodePending} onChange={(update) => setData((current) => ({ ...current, milestones: current.milestones.map((entry) => entry.id === node.id ? update(entry) : entry) }))} onClose={onClose} /></section>}
+      {node?.courseId && <section className="panel taskRequirements">{node.automationKey?.startsWith("study:") && !node.done && !access.readOnly && <div className="pageHeadActions"><button type="button" className="softButton" disabled={nodePending} onClick={() => setReviewStudy({ node, edited: true })}>保存到知识学习池</button></div>}<CourseNodeEditor node={node} variant={node.courseId ? "courseTask" : "event"} access={access} onPendingChange={setNodePending} onChange={(update) => setData((current) => ({ ...current, milestones: current.milestones.map((entry) => entry.id === node.id ? update(entry) : entry) }))} onClose={onClose} /></section>}
       {node && isEvent && <section className="panel taskRequirements courseEventContent"><SectionHead title="事项内容" /><label className="editField"><span>要求与备注</span><textarea readOnly={access.readOnly} maxLength={4000} value={node.requirements} onChange={(event) => { const requirements = event.target.value; setData((current) => ({ ...current, milestones: current.milestones.map((entry) => entry.id === node.id ? { ...entry, requirements } : entry) })); }} /></label><NodeAttachments nodeId={node.id} label="要求" files={node.attachments ?? []} access={access} onBlockedChange={setNodePending} onChange={(update) => setData((current) => ({ ...current, milestones: current.milestones.map((entry) => entry.id === node.id ? { ...entry, attachments: update(entry.attachments ?? []) } : entry) }))} /><label className="editField"><span>事项记录</span><textarea readOnly={access.readOnly} maxLength={4000} value={node.outcomeText ?? ""} onChange={(event) => { const outcomeText = event.target.value; setData((current) => ({ ...current, milestones: current.milestones.map((entry) => entry.id === node.id ? { ...entry, outcomeText } : entry) })); }} /></label><NodeAttachments nodeId={node.id} label="成果" files={node.outcomeAttachments ?? []} access={access} onBlockedChange={setNodePending} onChange={(update) => setData((current) => ({ ...current, milestones: current.milestones.map((entry) => entry.id === node.id ? { ...entry, outcomeAttachments: update(entry.outcomeAttachments ?? []) } : entry) }))} /></section>}
       <section className="panel editorSection" aria-label={entityLabel + "记录空间"}><SectionHead title={entityLabel + "记录"} /><BlockEditor blocks={item.blocks ?? []} onChange={saveBlocks} access={access} /></section>
     </div></div>
@@ -1783,11 +1793,11 @@ function StudyReviewDialog({ request, data, setData, onClose, onSaved }: {
 }) {
   const course = data.courses.find((course) => course.id === request.node.courseId)?.title ?? "";
   const title = request.node.title.trim();
-  return <DeferStudyDialog course={course} items={data.reviewPool?.items ?? []} title={request.edited ? "保存到复习池" : "以后再学"}
+  return <DeferStudyDialog course={course} items={data.reviewPool?.items ?? []} title={request.edited ? "保存到知识学习池" : "以后再学"}
     initialDraft={{ chapter: title === dailyStudyTitle(course) ? "" : title, note: personalStudyRequirements(request.node.requirements) }} onClose={onClose} onSave={(draft) => {
       const id = uid();
       const currentDate = dateKey();
-      if (editedStudyToReviewPool(data, request.node, draft, id, currentDate) === data) throw new Error("这项任务已进入复习池或已完成，请重新查看");
+      if (editedStudyToReviewPool(data, request.node, draft, id, currentDate) === data) throw new Error("这项任务已进入知识学习池或已完成，请重新查看");
       setData((current) => editedStudyToReviewPool(current, request.node, draft, id, currentDate));
       onSaved();
     }} />;
@@ -1815,7 +1825,7 @@ function MilestoneSettingsDialog({ node, courses, onClose, onSave, onOpenDetail,
       <label className="wide"><span>地点</span><input maxLength={500} value={draft.location} onChange={(event) => patch({ location: event.target.value })} /></label>
       {!draft.automationKey && !draft.id.startsWith("stage:") && <label className="wide calendarVisibilityToggle"><input type="checkbox" checked={draft.showOnCalendar !== false} onChange={(event) => patch({ showOnCalendar: event.target.checked })} /><span>显示在日历</span></label>}
     </div>
-    <div className="dialogActions"><button type="submit" className="softButton dialogDetailAction" onClick={() => { openDetailAfterSave.current = true; }}>保存并进入详细界面</button>{onSaveToReviewPool && node.automationKey?.startsWith("study:") && !node.done && <button type="submit" value="review-pool" formNoValidate className="softButton">保存到复习池</button>}<button type="button" className="softButton" onClick={onClose}>取消</button><button ref={saveButtonRef} type="submit" className="primaryButton" onClick={() => { openDetailAfterSave.current = false; }}>保存设置</button></div>
+    <div className="dialogActions"><button type="submit" className="softButton dialogDetailAction" onClick={() => { openDetailAfterSave.current = true; }}>保存并进入详细界面</button>{onSaveToReviewPool && node.automationKey?.startsWith("study:") && !node.done && <button type="submit" value="review-pool" formNoValidate className="softButton">保存到知识学习池</button>}<button type="button" className="softButton" onClick={onClose}>取消</button><button ref={saveButtonRef} type="submit" className="primaryButton" onClick={() => { openDetailAfterSave.current = false; }}>保存设置</button></div>
   </form></div>;
 }
 function CalendarView({ data, setData, setDialog, openWork, readOnly }: { data: AppState; setData: React.Dispatch<React.SetStateAction<AppState>>; setDialog: (value: DialogConfig) => void; openWork: (target: WorkTarget) => void; readOnly: boolean }) {

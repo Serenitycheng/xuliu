@@ -13,6 +13,25 @@ const tomorrow = '2026-11-04';
 const event = (patch = {}) => ({ id: 'exam-1', title: '税务考试', date: '2026-11-17', time: '10:10', area: '课内', done: false, assessmentType: 'exam', location: '教室', requirements: '保留考试说明', ...patch });
 const stateWith = (node) => ({ ...createEmptyWorkspaceState(), milestones: [node] });
 
+test('archived exam practice retains its history and leaves today, deadlines and the calendar', () => {
+  const state = { ...stateWith(event()), tasks: [{
+    id: 'archived-drill', title: '模拟训练', source: '考试', area: '课内', mode: 'single', done: false, today: true, elapsed: 45,
+    examEventId: 'exam-1', examSelectedDate: today, examArchived: true, due: tomorrow,
+    progressLogs: [{ id: 'log', date: today, status: '进行中', progress: 40, note: '做了半套' }],
+  }] };
+  const saved = workspaceStateSchema.parse(JSON.parse(JSON.stringify(state)));
+  assert.deepEqual(saved.tasks, state.tasks);
+  assert.equal(setExamReviewTaskSelected(saved.tasks[0], tomorrow), saved.tasks[0]);
+  const visible = withoutUnselectedExamReviewTasks(saved, today);
+  assert.equal(visible.tasks.length, 0);
+  assert.ok(upcomingDeadlines(visible.tasks, visible.milestones, today).every((item) => item.id !== 'archived-drill'));
+  assert.ok(manualCalendarItems(saved).every((item) => item.item.id !== 'archived-drill'));
+  const { examArchived: _archived, ...restored } = saved.tasks[0];
+  assert.equal(examReviewTaskSelectedOnDate(restored, today), true);
+  assert.equal(restored.elapsed, 45);
+  assert.equal(restored.progressLogs[0].progress, 40);
+});
+
 test('考试与测验自动成为考试项目，报告提交和标题相似的普通事项不归入', () => {
   const exams = [event(), event({ id: 'quiz', assessmentType: 'quiz', area: '课外' }), event({ id: 'unknown-date', date: '', time: '' })];
   const other = ['presentation', 'submission', undefined].map((assessmentType) => event({ assessmentType }));

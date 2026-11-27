@@ -1,6 +1,8 @@
+import { initializeCourseReviewPool } from "./fixtures/legacy-course-review.ts";
+import { initializeCourseReviewPool as initializeKnowledgePool, groupReviewPoolItems, movePoolEntry, setPoolEntryArchived } from "../lib/course-review-pool.ts";
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseReviewPoolItem, createReviewPoolItem, createReviewPoolStep, deferStudyToReviewPool, deleteReviewPoolItem, editedStudyToReviewPool, editReviewPoolItem, editReviewPoolStep, initializeCourseReviewPool, restoreReviewPoolItem, reviewPoolItemVisibleOnDate, reviewPoolStepVisibleOnDate, reviewPoolStepTodayCounts, reviewPoolTodayCounts, reviewPoolReadProjection, sameReviewCourse, updateReviewPoolItem, withoutReviewPoolSources } from '../lib/course-review-pool.ts';
+import { chooseReviewPoolItem, createReviewPoolItem, createReviewPoolStep, deferStudyToReviewPool, deleteReviewPoolItem, editedStudyToReviewPool, editReviewPoolItem, editReviewPoolStep, restoreReviewPoolItem, reviewPoolItemVisibleOnDate, reviewPoolStepVisibleOnDate, reviewPoolStepTodayCounts, reviewPoolTodayCounts, reviewPoolReadProjection, sameReviewCourse, updateReviewPoolItem, withoutReviewPoolSources } from '../lib/course-review-pool.ts';
 import { personalStudyRequirements, studyTaskVisibleOnDate } from '../lib/study-task-automation.ts';
 import { aiCourseContextFromWorkspace } from '../lib/ai-course-context.ts';
 import { createEmptyWorkspaceState, workspaceStateSchema } from '../lib/workspace-state-schema.ts';
@@ -682,4 +684,26 @@ test('AI course context includes homework but no pool sources as upcoming milest
   assert.deepEqual(context.upcomingMilestones.map(item => item.title), ['线代作业week3']);
   assert.equal(state.milestones.length, 2);
   assert.equal(aiCourseContextFromWorkspace(null, 'linear'), null);
+});
+test('new knowledge pools start empty and archive or reorder without losing progress or history', () => {
+  const oldTask = task('old-learning', '线代第二章rev', { done: true });
+  const empty = initializeKnowledgePool(stateFor([oldTask]));
+  assert.deepEqual(empty.reviewPool, { version: 1, items: [] });
+  assert.deepEqual(empty.tasks, [oldTask]);
+  const first = createReviewPoolItem([], { course: '线性代数', chapter: '建立知识框架', note: '保留笔记' }, 'first');
+  const other = createReviewPoolItem([first], { course: '统计学', chapter: '练习', note: '' }, 'other');
+  const second = createReviewPoolItem([first, other], { course: '线性代数B', chapter: '练习', note: '' }, 'second');
+  let state = { ...empty, reviewPool: { version: 1, items: [first, other, second] } };
+  const step = { ...createReviewPoolStep([], '画示意图', 'step'), done: true, selectedDate: today, completedDate: today };
+  state = updateReviewPoolItem(state, first.id, { progress: 60, steps: [step] }, today);
+  const reordered = movePoolEntry(state.reviewPool.items, second.id, -1, (a, b) => sameReviewCourse(a.course, b.course));
+  assert.deepEqual(reordered.map((item) => item.id), ['second', 'other', 'first']);
+  const archived = setPoolEntryArchived(reordered, first.id, true);
+  state = workspaceStateSchema.parse(JSON.parse(JSON.stringify({ ...state, reviewPool: { ...state.reviewPool, items: archived } })));
+  assert.deepEqual(groupReviewPoolItems(state.reviewPool.items).map((group) => group.items.map((item) => item.id)), [['second'], ['other']]);
+  assert.deepEqual(reviewPoolTodayCounts(state.reviewPool.items, today), { total: 0, completed: 0 });
+  const restored = setPoolEntryArchived(state.reviewPool.items, first.id, false).find((item) => item.id === first.id);
+  assert.equal(restored.progress, 60);
+  assert.equal(restored.note, '保留笔记');
+  assert.deepEqual(restored.steps, [step]);
 });

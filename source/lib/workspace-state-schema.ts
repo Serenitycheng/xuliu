@@ -125,11 +125,12 @@ const courseReviewPool = z.object({
     progress: z.number().int().min(0).max(100),
     note: text,
     done: z.boolean(),
+    archived: z.literal(true).optional(),
     previousProgress: z.number().int().min(0).max(99).optional(),
     selectedDate: date.optional(),
     completedDate: date.optional(),
     sources: z.array(z.object({ kind: z.enum(["task", "milestone"]), id }).strict()).max(2_000),
-    steps: z.array(z.object({ id, title: shortText.refine((value) => Boolean(value.trim()), "请填写小任务内容"), done: z.boolean(), selectedDate: date.optional(), completedDate: date.optional() }).strict()).max(50).optional(),
+    steps: z.array(z.object({ id, title: shortText.refine((value) => Boolean(value.trim()), "请填写小任务内容"), done: z.boolean(), selectedDate: date.optional(), completedDate: date.optional(), archived: z.literal(true).optional() }).strict()).max(50).optional(),
   }).strict()).max(500),
   removedSources: z.array(z.object({ kind: z.enum(["task", "milestone"]), id }).strict()).max(30_000).optional(),
 }).strict().superRefine((pool, context) => {
@@ -163,7 +164,7 @@ export const workspaceStateSchema = z.object({
   reviewPool: courseReviewPool.optional(),
   tasks: z.array(z.object({
     id, title: shortText, area, source: shortText, due: date.optional(), done: z.boolean(), completedDate: date.optional(), dismissedTodayDate: date.optional(), today: z.boolean(), elapsed: z.number().int().min(0).max(10_000_000),
-    parentId: id.optional(), parentMilestoneId: id.optional(), examEventId: id.optional(), examSelectedDate: date.optional(), courseId: id.optional(), showOnCalendar: z.boolean().optional(), progressedDates: z.array(date).max(36_600).optional(), blocks: z.array(block).max(2000).optional(),
+    parentId: id.optional(), parentMilestoneId: id.optional(), examEventId: id.optional(), examSelectedDate: date.optional(), examArchived: z.literal(true).optional(), courseId: id.optional(), showOnCalendar: z.boolean().optional(), progressedDates: z.array(date).max(36_600).optional(), blocks: z.array(block).max(2000).optional(),
     requirements: text.optional(), attachments: z.array(storedAttachment).max(50).optional(), parentCandidate: z.boolean().optional(),
     mode: z.enum(["single", "multi"]).optional(), startDate: date.optional(), dueTime: time.optional(), plannedDate: date.optional(), status: taskStatus.optional(), progress: z.number().int().min(0).max(100).optional(), progressLogs: z.array(taskProgressLog).max(2_000).optional(),
   }).strict().superRefine((task, context) => {

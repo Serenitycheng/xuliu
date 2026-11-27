@@ -31,14 +31,22 @@
 .reviewPoolAddActions button { padding: 8px 12px; font-size: 12px; }
 .reviewPoolClose { display: grid; place-items: center; flex: 0 0 34px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); background: var(--paper-soft); font-size: 22px; }
 .reviewPoolContents { padding: 7px 26px 25px; }
-.reviewPoolUndo { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 14px; padding: 12px 14px; border-radius: 8px; background: var(--paper-soft); font-size: 12px; }
-.reviewPoolUndo > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.reviewPoolUndo button { padding: 5px; white-space: nowrap; }
-.reviewPoolUndo p { flex-basis: 100%; margin: 0; color: var(--appearance-danger, #a7443c); }
 .reviewPoolDelete { justify-self: end; padding: 6px 0; border: 0; color: var(--appearance-danger, #a7443c); background: transparent; font-size: 12px; }
 .reviewPoolCourse { padding-top: 22px; }
 .reviewPoolCourse + .reviewPoolCourse { margin-top: 8px; border-top: 1px solid var(--line); }
-.reviewPoolCourse h3 { margin: 0 0 8px; color: var(--text); font-size: 15px; font-weight: 650; }
+.reviewPoolCourse > .poolCourseHeader { display: flex; align-items: center; gap: 8px; color: var(--text); cursor: pointer; list-style: none; padding: 3px 0 8px; font-size: 14px; }
+.poolCourseHeader::-webkit-details-marker { display: none; }
+.poolCourseHeader::before { content: "›"; color: var(--muted); font-size: 17px; }
+.reviewPoolCourse[open] > .poolCourseHeader::before { transform: rotate(90deg); }
+.poolCourseHeader strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.poolCourseHeader span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.reviewPoolOrder { display: inline-flex; flex: none; gap: 5px; }
+.reviewPoolOrder button { min-width: 19px; }
+.reviewPoolOrder button:disabled { opacity: .4; }
+.reviewPoolArchive { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.reviewPoolArchive summary { cursor: pointer; }
+.reviewPoolArchive li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.reviewPoolArchive button { padding: 6px; }
 .reviewPoolList { margin: 0; padding: 0; list-style: none; }
 .reviewPoolItem { min-width: 0; }
 .reviewPoolRow { display: flex; align-items: center; gap: 12px; min-height: 56px; }

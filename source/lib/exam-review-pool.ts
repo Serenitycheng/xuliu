@@ -13,20 +13,20 @@ export type ExamReviewEvent = {
 export type ExamReviewTask = {
   id: string; title: string; done: boolean; area: ExamReviewEvent["area"];
   source: string; today: boolean; elapsed: number;
-  examEventId?: string; examSelectedDate?: string; courseId?: string; mode?: "single" | "multi";
+  examEventId?: string; examSelectedDate?: string; examArchived?: true; courseId?: string; mode?: "single" | "multi";
   plannedDate?: string; completedDate?: string; showOnCalendar?: boolean;
 };
 
-type ExamReviewSelection = Pick<ExamReviewTask, "examEventId" | "examSelectedDate">;
+type ExamReviewSelection = Pick<ExamReviewTask, "examEventId" | "examSelectedDate" | "examArchived">;
 type ExamReviewIdentity = Pick<ExamReviewEvent, "id" | "courseId" | "assessmentType">;
 
 export function examReviewTaskSelectedOnDate(task: ExamReviewSelection, date: string): boolean {
-  return !task.examEventId || isValidLocalDate(date) && task.examSelectedDate === date;
+  return !task.examArchived && (!task.examEventId || isValidLocalDate(date) && task.examSelectedDate === date);
 }
 
 export function setExamReviewTaskSelected<T extends ExamReviewSelection>(task: T, date: string | undefined): T {
   if (date !== undefined && !isValidLocalDate(date)) throw new Error("请选择有效日期");
-  if (!task.examEventId) return task;
+  if (!task.examEventId || task.examArchived) return task;
   if (date === undefined) {
     if (!Object.hasOwn(task, "examSelectedDate")) return task;
     const { examSelectedDate: _examSelectedDate, ...rest } = task;
@@ -53,7 +53,7 @@ export function withoutUnselectedExamReviewTasks<S extends { tasks: (ExamReviewS
       if (linkedTaskIds.has(task.parentId) || hiddenStageIds.has(task.parentId)) { hiddenStageIds.add(task.id); changed = true; }
     }
   }
-  const tasks = state.tasks.filter((task) => !hiddenStageIds.has(task.id) && (!linkedTaskIds.has(task.id) || examReviewTaskSelectedOnDate(task, date)));
+  const tasks = state.tasks.filter((task) => !task.examArchived && !hiddenStageIds.has(task.id) && (!linkedTaskIds.has(task.id) || examReviewTaskSelectedOnDate(task, date)));
   return tasks.length === state.tasks.length ? state : { ...state, tasks };
 }
 
